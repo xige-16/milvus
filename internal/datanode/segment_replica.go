@@ -57,36 +57,37 @@ type Replica interface {
 	listAllSegmentIDs() []UniqueID
 	listNotFlushedSegmentIDs() []UniqueID
 	addNewSegment(segID, collID, partitionID UniqueID, channelName string, startPos, endPos *internalpb.MsgPosition) error
-	addNormalSegment(segID, collID, partitionID UniqueID, channelName string, numOfRows int64, statsBinlog []*datapb.FieldBinlog, cp *segmentCheckPoint, recoverTs Timestamp) error
+	addNormalSegment(segID, collID, partitionID UniqueID, channelName string, numOfRows int64, dataSize uint64, statsBinlog []*datapb.FieldBinlog, cp *segmentCheckPoint, recoverTs Timestamp) error
 	filterSegments(channelName string, partitionID UniqueID) []*Segment
-	addFlushedSegment(segID, collID, partitionID UniqueID, channelName string, numOfRows int64, statsBinlog []*datapb.FieldBinlog, recoverTs Timestamp) error
+	addFlushedSegment(segID, collID, partitionID UniqueID, channelName string, numOfRows int64, dataSize uint64, statsBinlog []*datapb.FieldBinlog, recoverTs Timestamp) error
 	listNewSegmentsStartPositions() []*datapb.SegmentStartPosition
 	listSegmentsCheckPoints() map[UniqueID]segmentCheckPoint
 	updateSegmentEndPosition(segID UniqueID, endPos *internalpb.MsgPosition)
 	updateSegmentCheckPoint(segID UniqueID)
 	updateSegmentPKRange(segID UniqueID, ids storage.FieldData)
-	mergeFlushedSegments(segID, collID, partID, planID UniqueID, compactedFrom []UniqueID, channelName string, numOfRows int64) error
+	mergeFlushedSegments(segID, collID, partID, planID UniqueID, compactedFrom []UniqueID, channelName string, numOfRows int64, dataSize uint64) error
 	hasSegment(segID UniqueID, countFlushed bool) bool
 	removeSegments(segID ...UniqueID)
 	listCompactedSegmentIDs() map[UniqueID][]UniqueID
 
-	updateStatistics(segID UniqueID, numRows int64)
-	refreshFlushedSegStatistics(segID UniqueID, numRows int64)
+	updateStatistics(segID UniqueID, numRows int64, dataSize uint64)
+	refreshFlushedSegStatistics(segID UniqueID, numRows int64, dataSize uint64)
 	getSegmentStatisticsUpdates(segID UniqueID) (*datapb.SegmentStats, error)
 	segmentFlushed(segID UniqueID)
 }
 
 // Segment is the data structure of segments in data node replica.
 type Segment struct {
-	collectionID UniqueID
-	partitionID  UniqueID
-	segmentID    UniqueID
-	numRows      int64
-	memorySize   int64
-	isNew        atomic.Value // bool
-	isFlushed    atomic.Value // bool
-	channelName  string
-	compactedTo  UniqueID
+	collectionID   UniqueID
+	partitionID    UniqueID
+	segmentID      UniqueID
+	numRows        int64
+	insertDataSize uint64
+	memorySize     uint64
+	isNew          atomic.Value // bool
+	isFlushed      atomic.Value // bool
+	channelName    string
+	compactedTo    UniqueID
 
 	checkPoint segmentCheckPoint
 	startPos   *internalpb.MsgPosition // TODO readonly
@@ -341,7 +342,10 @@ func (replica *SegmentReplica) filterSegments(channelName string, partitionID Un
 
 // addNormalSegment adds a *NotNew* and *NotFlushed* segment. Before add, please make sure there's no
 // such segment by `hasSegment`
-func (replica *SegmentReplica) addNormalSegment(segID, collID, partitionID UniqueID, channelName string, numOfRows int64, statsBinlogs []*datapb.FieldBinlog, cp *segmentCheckPoint, recoverTs Timestamp) error {
+func (replica *SegmentReplica) addNormalSegment(segID, collID, partitionID UniqueID, channelName string,
+	numOfRows int64, dataSize uint64,
+	statsBinlogs []*datapb.FieldBinlog,
+	cp *segmentCheckPoint, recoverTs Timestamp) error {
 	if collID != replica.collectionID {
 		log.Warn("Mismatch collection",
 			zap.Int64("input ID", collID),
@@ -357,11 +361,12 @@ func (replica *SegmentReplica) addNormalSegment(segID, collID, partitionID Uniqu
 	)
 
 	seg := &Segment{
-		collectionID: collID,
-		partitionID:  partitionID,
-		segmentID:    segID,
-		channelName:  channelName,
-		numRows:      numOfRows,
+		collectionID:   collID,
+		partitionID:    partitionID,
+		segmentID:      segID,
+		channelName:    channelName,
+		numRows:        numOfRows,
+		insertDataSize: dataSize,
 
 		pkFilter: bloom.NewWithEstimates(bloomFilterSize, maxBloomFalsePositive),
 	}
@@ -388,7 +393,9 @@ func (replica *SegmentReplica) addNormalSegment(segID, collID, partitionID Uniqu
 
 // addFlushedSegment adds a *Flushed* segment. Before add, please make sure there's no
 // such segment by `hasSegment`
-func (replica *SegmentReplica) addFlushedSegment(segID, collID, partitionID UniqueID, channelName string, numOfRows int64, statsBinlogs []*datapb.FieldBinlog, recoverTs Timestamp) error {
+func (replica *SegmentReplica) addFlushedSegment(segID, collID, partitionID UniqueID, channelName string,
+	numOfRows int64, dataSize uint64,
+	statsBinlogs []*datapb.FieldBinlog, recoverTs Timestamp) error {
 
 	if collID != replica.collectionID {
 		log.Warn("Mismatch collection",
@@ -405,11 +412,12 @@ func (replica *SegmentReplica) addFlushedSegment(segID, collID, partitionID Uniq
 	)
 
 	seg := &Segment{
-		collectionID: collID,
-		partitionID:  partitionID,
-		segmentID:    segID,
-		channelName:  channelName,
-		numRows:      numOfRows,
+		collectionID:   collID,
+		partitionID:    partitionID,
+		segmentID:      segID,
+		channelName:    channelName,
+		numRows:        numOfRows,
+		insertDataSize: dataSize,
 
 		//TODO silverxia, normal segments bloom filter and pk range should be loaded from serialized files
 		pkFilter: bloom.NewWithEstimates(bloomFilterSize, maxBloomFalsePositive),
@@ -604,13 +612,14 @@ func (replica *SegmentReplica) hasSegment(segID UniqueID, countFlushed bool) boo
 
 	return inNew || inNormal || inFlush
 }
-func (replica *SegmentReplica) refreshFlushedSegStatistics(segID UniqueID, numRows int64) {
+func (replica *SegmentReplica) refreshFlushedSegStatistics(segID UniqueID, numRows int64, dataSize uint64) {
 	replica.segMu.RLock()
 	defer replica.segMu.RUnlock()
 
 	if seg, ok := replica.flushedSegments[segID]; ok {
 		seg.memorySize = 0
 		seg.numRows = numRows
+		seg.insertDataSize = dataSize
 		return
 	}
 
@@ -618,7 +627,7 @@ func (replica *SegmentReplica) refreshFlushedSegStatistics(segID UniqueID, numRo
 }
 
 // updateStatistics updates the number of rows of a segment in replica.
-func (replica *SegmentReplica) updateStatistics(segID UniqueID, numRows int64) {
+func (replica *SegmentReplica) updateStatistics(segID UniqueID, numRows int64, dataSize uint64) {
 	replica.segMu.Lock()
 	defer replica.segMu.Unlock()
 
@@ -626,12 +635,14 @@ func (replica *SegmentReplica) updateStatistics(segID UniqueID, numRows int64) {
 	if seg, ok := replica.newSegments[segID]; ok {
 		seg.memorySize = 0
 		seg.numRows += numRows
+		seg.insertDataSize += dataSize
 		return
 	}
 
 	if seg, ok := replica.normalSegments[segID]; ok {
 		seg.memorySize = 0
 		seg.numRows += numRows
+		seg.insertDataSize += dataSize
 		return
 	}
 
@@ -646,16 +657,19 @@ func (replica *SegmentReplica) getSegmentStatisticsUpdates(segID UniqueID) (*dat
 
 	if seg, ok := replica.newSegments[segID]; ok {
 		updates.NumRows = seg.numRows
+		updates.InsertDataSize = seg.insertDataSize
 		return updates, nil
 	}
 
 	if seg, ok := replica.normalSegments[segID]; ok {
 		updates.NumRows = seg.numRows
+		updates.InsertDataSize = seg.insertDataSize
 		return updates, nil
 	}
 
 	if seg, ok := replica.flushedSegments[segID]; ok {
 		updates.NumRows = seg.numRows
+		updates.InsertDataSize = seg.insertDataSize
 		return updates, nil
 	}
 
@@ -712,7 +726,7 @@ func (replica *SegmentReplica) updateSegmentCheckPoint(segID UniqueID) {
 	log.Warn("There's no segment", zap.Int64("ID", segID))
 }
 
-func (replica *SegmentReplica) mergeFlushedSegments(segID, collID, partID, planID UniqueID, compactedFrom []UniqueID, channelName string, numOfRows int64) error {
+func (replica *SegmentReplica) mergeFlushedSegments(segID, collID, partID, planID UniqueID, compactedFrom []UniqueID, channelName string, numOfRows int64, dataSize uint64) error {
 	if collID != replica.collectionID {
 		log.Warn("Mismatch collection",
 			zap.Int64("input ID", collID),
@@ -729,11 +743,12 @@ func (replica *SegmentReplica) mergeFlushedSegments(segID, collID, partID, planI
 	)
 
 	seg := &Segment{
-		collectionID: collID,
-		partitionID:  partID,
-		segmentID:    segID,
-		channelName:  channelName,
-		numRows:      numOfRows,
+		collectionID:   collID,
+		partitionID:    partID,
+		segmentID:      segID,
+		channelName:    channelName,
+		numRows:        numOfRows,
+		insertDataSize: dataSize,
 
 		pkFilter: bloom.NewWithEstimates(bloomFilterSize, maxBloomFalsePositive),
 	}

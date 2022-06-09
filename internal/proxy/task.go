@@ -346,8 +346,8 @@ func (it *insertTask) PreExecute(ctx context.Context) error {
 	return nil
 }
 
-func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack, error) {
-	threshold := Params.PulsarCfg.MaxMessageSize
+func (it *insertTask) assignSegmentID(ctx context.Context, channelNames []string) (*msgstream.MsgPack, error) {
+	threshold := uint64(Params.PulsarCfg.MaxMessageSize)
 
 	result := &msgstream.MsgPack{
 		BeginTs: it.BeginTs(),
@@ -360,8 +360,10 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 	}
 	it.HashValues = typeutil.HashPK2Channels(it.result.IDs, channelNames)
 	// groupedHashKeys represents the dmChannel index
-	channel2RowOffsets := make(map[string][]int)  //   channelName to count
-	channelMaxTSMap := make(map[string]Timestamp) //  channelName to max Timestamp
+	channel2RowOffsets := make(map[string][]int)           //   channelName to count
+	channel2EntitySize := make(map[string]uint64)          //   channelName to insert entity size
+	channelMaxTSMap := make(map[string]Timestamp)          //  channelName to max Timestamp
+	EntitySizePerRow := make([]uint64, len(it.HashValues)) // entity size per row
 
 	// assert len(it.hashValues) < maxInt
 	for offset, channelID := range it.HashValues {
@@ -378,6 +380,17 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 		if channelMaxTSMap[channelName] < ts {
 			channelMaxTSMap[channelName] = ts
 		}
+
+		entitySize, err := typeutil.EstimateEntitySize(it.InsertRequest.GetFieldsData(), offset)
+		if err != nil {
+			log.Error("estimate entity size failed",
+				zap.Int64("collectionID", it.CollectionID),
+				zap.Int("row offset", offset),
+				zap.Error(err))
+			return nil, err
+		}
+		channel2EntitySize[channelName] += entitySize
+		EntitySizePerRow[offset] = entitySize
 	}
 
 	// create empty insert message
@@ -410,15 +423,12 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 	}
 
 	// repack the row data corresponding to the offset to insertMsg
-	getInsertMsgsBySegmentID := func(segmentID UniqueID, rowOffsets []int, channelName string, mexMessageSize int) ([]msgstream.TsMsg, error) {
+	getInsertMsgsBySegmentID := func(segmentID UniqueID, rowOffsets []int, channelName string, mexMessageSize uint64) ([]msgstream.TsMsg, error) {
 		repackedMsgs := make([]msgstream.TsMsg, 0)
-		requestSize := 0
+		requestSize := uint64(0)
 		insertMsg := createInsertMsg(segmentID, channelName)
 		for _, offset := range rowOffsets {
-			curRowMessageSize, err := typeutil.EstimateEntitySize(it.InsertRequest.GetFieldsData(), offset)
-			if err != nil {
-				return nil, err
-			}
+			curRowMessageSize := EntitySizePerRow[offset]
 
 			// if insertMsg's size is greater than the threshold, split into multiple insertMsgs
 			if requestSize+curRowMessageSize >= mexMessageSize {
@@ -440,19 +450,24 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 	}
 
 	// get allocated segmentID info for every dmChannel and repack insertMsgs for every segmentID
-	for channelName, rowOffsets := range channel2RowOffsets {
-		assignedSegmentInfos, err := it.segIDAssigner.GetSegmentID(it.CollectionID, it.PartitionID, channelName, uint32(len(rowOffsets)), channelMaxTSMap[channelName])
-		if err != nil {
-			log.Error("allocate segmentID for insert data failed",
-				zap.Int64("collectionID", it.CollectionID),
-				zap.String("channel name", channelName),
-				zap.Int("allocate count", len(rowOffsets)),
-				zap.Error(err))
-			return nil, err
-		}
-
+	insertedChannels := make([]string, 0)
+	channel2Count := make(map[string]uint32)
+	for channelName, offsets := range channel2RowOffsets {
+		insertedChannels = append(insertedChannels, channelName)
+		channel2Count[channelName] = uint32(len(offsets))
+	}
+	assignedSegmentInfos, err := it.segIDAssigner.GetSegmentIDV2(it.CollectionID, it.PartitionID, insertedChannels, channel2Count, channel2EntitySize)
+	if err != nil {
+		log.Error("allocate segmentID for insert data failed",
+			zap.Int64("collectionID", it.CollectionID),
+			zap.Any("chanel to allocate count", channel2Count),
+			zap.Error(err))
+		return nil, err
+	}
+	for channelName, segmentInfo := range assignedSegmentInfos {
 		startPos := 0
-		for segmentID, count := range assignedSegmentInfos {
+		rowOffsets := channel2RowOffsets[channelName]
+		for segmentID, count := range segmentInfo {
 			subRowOffsets := rowOffsets[startPos : startPos+int(count)]
 			insertMsgs, err := getInsertMsgsBySegmentID(segmentID, subRowOffsets, channelName, threshold)
 			if err != nil {
@@ -520,7 +535,7 @@ func (it *insertTask) Execute(ctx context.Context) error {
 		zap.Int64("task_id", it.ID()))
 
 	// assign segmentID for insert data and repack data by segmentID
-	msgPack, err := it.assignSegmentID(channelNames)
+	msgPack, err := it.assignSegmentID(ctx, channelNames)
 	if err != nil {
 		log.Error("assign segmentID and repack insert data failed", zap.Int64("msgID", it.Base.MsgID), zap.Int64("collectionID", collID), zap.Error(err))
 		it.result.Status.ErrorCode = commonpb.ErrorCode_UnexpectedError

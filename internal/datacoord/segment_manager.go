@@ -57,6 +57,24 @@ func getAllocation(numOfRows int64) *Allocation {
 	return a
 }
 
+// getSizeAllocation unifies way to retrieve allocation struct
+func getSizeAllocation(dataSize uint64) *Allocation {
+	v := allocPool.Get()
+	a, ok := v.(*Allocation)
+	if !ok {
+		a = &Allocation{}
+	}
+	if a == nil {
+		return &Allocation{
+			DataSize: dataSize,
+		}
+	}
+	a.DataSize = dataSize
+	a.ExpireTime = 0
+	a.SegmentID = 0
+	return a
+}
+
 // putAllocation puts an allocation for recycling
 func putAllocation(a *Allocation) {
 	allocPool.Put(a)
@@ -65,7 +83,7 @@ func putAllocation(a *Allocation) {
 // Manager manages segment related operations.
 type Manager interface {
 	// AllocSegment allocates rows and record the allocation.
-	AllocSegment(ctx context.Context, collectionID, partitionID UniqueID, channelName string, requestRows int64) ([]*Allocation, error)
+	AllocSegment(ctx context.Context, segmentIDReq *datapb.SegmentIDRequest) ([]*Allocation, error)
 	// AllocSegmentForImport allocates one segment allocation for bulkload.
 	AllocSegmentForImport(ctx context.Context, collectionID, partitionID UniqueID, channelName string, requestRows int64) (*Allocation, error)
 	// DropSegment drops the segment from manager.
@@ -86,6 +104,7 @@ type Allocation struct {
 	SegmentID  UniqueID
 	NumOfRows  int64
 	ExpireTime Timestamp
+	DataSize   uint64
 }
 
 // make sure SegmentManager implements Manager
@@ -170,7 +189,7 @@ func defaultCalUpperLimitPolicy() calUpperLimitPolicy {
 }
 
 func defaultAllocatePolicy() AllocatePolicy {
-	return AllocatePolicyV1
+	return AllocatePolicyV2
 }
 
 func defaultSegmentSealPolicy() []segmentSealPolicy {
@@ -215,8 +234,10 @@ func (s *SegmentManager) loadSegmentsFromMeta() {
 }
 
 // AllocSegment allocate segment per request collcation, partication, channel and rows
-func (s *SegmentManager) AllocSegment(ctx context.Context, collectionID UniqueID,
-	partitionID UniqueID, channelName string, requestRows int64) ([]*Allocation, error) {
+func (s *SegmentManager) AllocSegment(ctx context.Context, req *datapb.SegmentIDRequest) ([]*Allocation, error) {
+	collectionID := req.CollectionID
+	partitionID := req.PartitionID
+	channelName := req.ChannelName
 	sp, _ := trace.StartSpanFromContext(ctx)
 	defer sp.Finish()
 	s.mu.Lock()
@@ -237,12 +258,12 @@ func (s *SegmentManager) AllocSegment(ctx context.Context, collectionID UniqueID
 	}
 
 	// Apply allocation policy.
-	maxCountPerSegment, err := s.estimateMaxNumOfRows(collectionID)
+	maxLimit, err := s.estimateSegLimit(collectionID)
 	if err != nil {
 		return nil, err
 	}
 	newSegmentAllocations, existedSegmentAllocations := s.allocPolicy(segments,
-		requestRows, int64(maxCountPerSegment))
+		req, maxLimit)
 
 	// create new segments and add allocations
 	expireTs, err := s.genExpireTs(ctx)
@@ -325,7 +346,7 @@ func (s *SegmentManager) openNewSegment(ctx context.Context, collectionID Unique
 	if err != nil {
 		return nil, err
 	}
-	maxNumOfRows, err := s.estimateMaxNumOfRows(collectionID)
+	maxLimit, err := s.estimateSegLimit(collectionID)
 	if err != nil {
 		return nil, err
 	}
@@ -337,7 +358,7 @@ func (s *SegmentManager) openNewSegment(ctx context.Context, collectionID Unique
 		InsertChannel:  channelName,
 		NumOfRows:      0,
 		State:          segmentState,
-		MaxRowNum:      int64(maxNumOfRows),
+		MaxRowNum:      maxLimit.minNumRow,
 		LastExpireTime: 0,
 	}
 	segment := NewSegmentInfo(segmentInfo)
@@ -348,18 +369,18 @@ func (s *SegmentManager) openNewSegment(ctx context.Context, collectionID Unique
 	log.Info("datacoord: estimateTotalRows: ",
 		zap.Int64("CollectionID", segmentInfo.CollectionID),
 		zap.Int64("SegmentID", segmentInfo.ID),
-		zap.Int("Rows", maxNumOfRows),
+		zap.Int64("Rows", maxLimit.minNumRow),
 		zap.String("Channel", segmentInfo.InsertChannel))
 
 	return segment, s.helper.afterCreateSegment(segmentInfo)
 }
 
-func (s *SegmentManager) estimateMaxNumOfRows(collectionID UniqueID) (int, error) {
+func (s *SegmentManager) estimateSegLimit(collectionID UniqueID) (*estimatedSegLimit, error) {
 	collMeta := s.meta.GetCollection(collectionID)
 	if collMeta == nil {
-		return -1, fmt.Errorf("failed to get collection %d", collectionID)
+		return nil, fmt.Errorf("failed to get collection %d", collectionID)
 	}
-	return s.estimatePolicy(collMeta.Schema)
+	return calBySchemaPolicy(collMeta.Schema)
 }
 
 // DropSegment drop the segment from manager.

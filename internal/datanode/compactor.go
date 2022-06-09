@@ -529,17 +529,24 @@ func (t *compactionTask) compact() error {
 		log.Debug("rpc elapse in ms", zap.Int64("planID", t.plan.GetPlanID()), zap.Any("elapse", nano2Milli(rpcEnd.Sub(rpcStart))))
 	}()
 
+	insertDataSize := uint64(0)
+	for _, iData := range iDatas {
+		for _, field := range iData.Data {
+			insertDataSize += uint64(field.GetMemorySize())
+		}
+	}
+
 	//  Compaction I: update pk range.
 	//  Compaction II: remove the segments and add a new flushed segment with pk range.
 	if t.hasSegment(targetSegID, true) {
 		if numRows <= 0 {
 			t.removeSegments(targetSegID)
 		} else {
-			t.refreshFlushedSegStatistics(targetSegID, numRows)
+			t.refreshFlushedSegStatistics(targetSegID, numRows, insertDataSize)
 		}
 		// no need to shorten the PK range of a segment, deleting dup PKs is valid
 	} else {
-		err = t.mergeFlushedSegments(targetSegID, collID, partID, t.plan.GetPlanID(), segIDs, t.plan.GetChannel(), numRows)
+		err = t.mergeFlushedSegments(targetSegID, collID, partID, t.plan.GetPlanID(), segIDs, t.plan.GetChannel(), numRows, insertDataSize)
 		if err != nil {
 			log.Error("compact wrong", zap.Int64("planID", t.plan.GetPlanID()), zap.Error(err))
 			return err

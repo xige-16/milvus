@@ -18,6 +18,7 @@ package datacoord
 
 import (
 	"errors"
+	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"sort"
 	"time"
 
@@ -27,38 +28,48 @@ import (
 	"github.com/milvus-io/milvus/internal/util/typeutil"
 )
 
-type calUpperLimitPolicy func(schema *schemapb.CollectionSchema) (int, error)
+type estimatedSegLimit struct {
+	minNumRow   int64
+	maxDataSize int64
+}
 
-func calBySchemaPolicy(schema *schemapb.CollectionSchema) (int, error) {
+type calUpperLimitPolicy func(schema *schemapb.CollectionSchema) (*estimatedSegLimit, error)
+
+func calBySchemaPolicy(schema *schemapb.CollectionSchema) (*estimatedSegLimit, error) {
 	if schema == nil {
-		return -1, errors.New("nil schema")
+		return nil, errors.New("nil schema")
 	}
-	sizePerRecord, err := typeutil.EstimateSizePerRecord(schema)
+	maxSizePerRecord, err := typeutil.EstimateSizePerRecord(schema)
 	if err != nil {
-		return -1, err
+		return nil, err
 	}
 	// check zero value, preventing panicking
-	if sizePerRecord == 0 {
-		return -1, errors.New("zero size record schema found")
+	if maxSizePerRecord == 0 {
+		return nil, errors.New("zero size record schema found")
 	}
 	threshold := Params.DataCoordCfg.SegmentMaxSize * 1024 * 1024
-	return int(threshold / float64(sizePerRecord)), nil
+	return &estimatedSegLimit{
+		minNumRow:   int64(threshold / float64(maxSizePerRecord)),
+		maxDataSize: int64(threshold),
+	}, nil
 }
 
 // AllocatePolicy helper function definition to allocate Segment space
-type AllocatePolicy func(segments []*SegmentInfo, count int64,
-	maxCountPerSegment int64) ([]*Allocation, []*Allocation)
+type AllocatePolicy func(segments []*SegmentInfo, segmentIDReq *datapb.SegmentIDRequest,
+	segmentLimit *estimatedSegLimit) ([]*Allocation, []*Allocation)
 
 // AllocatePolicyV1 v1 policy simple allocation policy using Greedy Algorithm
-func AllocatePolicyV1(segments []*SegmentInfo, count int64,
-	maxCountPerSegment int64) ([]*Allocation, []*Allocation) {
+func AllocatePolicyV1(segments []*SegmentInfo, segmentIDReq *datapb.SegmentIDRequest,
+	segmentLimit *estimatedSegLimit) ([]*Allocation, []*Allocation) {
+	count := int64(segmentIDReq.Count)
+	estimatedCountPerSegment := segmentLimit.minNumRow
 	newSegmentAllocations := make([]*Allocation, 0)
 	existedSegmentAllocations := make([]*Allocation, 0)
 	// create new segment if count >= max num
-	for count >= maxCountPerSegment {
-		allocation := getAllocation(maxCountPerSegment)
+	for count >= estimatedCountPerSegment {
+		allocation := getAllocation(estimatedCountPerSegment)
 		newSegmentAllocations = append(newSegmentAllocations, allocation)
-		count -= maxCountPerSegment
+		count -= estimatedCountPerSegment
 	}
 
 	// allocate space for remaining count
@@ -82,6 +93,46 @@ func AllocatePolicyV1(segments []*SegmentInfo, count int64,
 
 	// allocate new segment for remaining count
 	allocation := getAllocation(count)
+	newSegmentAllocations = append(newSegmentAllocations, allocation)
+	return newSegmentAllocations, existedSegmentAllocations
+}
+
+// AllocatePolicyV2 v2 policy simple allocation policy by insert data size in segmentIDReq
+func AllocatePolicyV2(segments []*SegmentInfo, segmentIDReq *datapb.SegmentIDRequest,
+	segmentLimit *estimatedSegLimit) ([]*Allocation, []*Allocation) {
+	reqDataSize := segmentIDReq.GetDataSize()
+	maxSizePerSegment := uint64(segmentLimit.maxDataSize)
+
+	newSegmentAllocations := make([]*Allocation, 0)
+	existedSegmentAllocations := make([]*Allocation, 0)
+
+	for reqDataSize >= maxSizePerSegment {
+		allocation := getSizeAllocation(maxSizePerSegment)
+		newSegmentAllocations = append(newSegmentAllocations, allocation)
+		reqDataSize -= maxSizePerSegment
+	}
+
+	// allocate space for remaining data size
+	if reqDataSize == 0 {
+		return newSegmentAllocations, existedSegmentAllocations
+	}
+	for _, segment := range segments {
+		var allocSize uint64
+		for _, allocation := range segment.allocations {
+			allocSize += allocation.DataSize
+		}
+		free := maxSizePerSegment - segment.GetNumOfRows() - allocSize
+		if free < reqDataSize {
+			continue
+		}
+		allocation := getSizeAllocation(reqDataSize)
+		allocation.SegmentID = segment.GetID()
+		existedSegmentAllocations = append(existedSegmentAllocations, allocation)
+		return newSegmentAllocations, existedSegmentAllocations
+	}
+
+	// allocate new segment for remaining data size
+	allocation := getSizeAllocation(reqDataSize)
 	newSegmentAllocations = append(newSegmentAllocations, allocation)
 	return newSegmentAllocations, existedSegmentAllocations
 }

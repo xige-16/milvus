@@ -175,7 +175,7 @@ func (dsService *dataSyncService) initNodes(vchanInfo *datapb.VchannelInfo) erro
 			}
 		}
 		if err := dsService.replica.addNormalSegment(us.GetID(), us.CollectionID, us.PartitionID, us.GetInsertChannel(),
-			us.GetNumOfRows(), us.Statslogs, cp, vchanInfo.GetSeekPosition().GetTimestamp()); err != nil {
+			us.GetNumOfRows(), us.GetInsertDataSize(), us.Statslogs, cp, vchanInfo.GetSeekPosition().GetTimestamp()); err != nil {
 			return err
 		}
 	}
@@ -198,7 +198,7 @@ func (dsService *dataSyncService) initNodes(vchanInfo *datapb.VchannelInfo) erro
 			zap.Int64("NumOfRows", fs.GetNumOfRows()),
 		)
 		if err := dsService.replica.addFlushedSegment(fs.GetID(), fs.CollectionID, fs.PartitionID, fs.GetInsertChannel(),
-			fs.GetNumOfRows(), fs.Statslogs, vchanInfo.GetSeekPosition().GetTimestamp()); err != nil {
+			fs.GetNumOfRows(), fs.GetInsertDataSize(), fs.Statslogs, vchanInfo.GetSeekPosition().GetTimestamp()); err != nil {
 			return err
 		}
 	}

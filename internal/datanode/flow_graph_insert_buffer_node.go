@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/milvus-io/milvus/internal/util/typeutil"
 	"reflect"
 	"sync"
 
@@ -408,7 +409,8 @@ func (ibNode *insertBufferNode) Operate(in []Msg) []Msg {
 //  If the segment doesn't exist, a new segment will be created.
 //  The segment number of rows will be updated in mem, waiting to be uploaded to DataCoord.
 func (ibNode *insertBufferNode) updateSegStatesInReplica(insertMsgs []*msgstream.InsertMsg, startPos, endPos *internalpb.MsgPosition) (seg2Upload []UniqueID, err error) {
-	uniqueSeg := make(map[UniqueID]int64)
+	segmentID2NumRows := make(map[UniqueID]int64)
+	segmentID2DataSize := make(map[UniqueID]uint64)
 	for _, msg := range insertMsgs {
 
 		currentSegID := msg.GetSegmentID()
@@ -429,14 +431,40 @@ func (ibNode *insertBufferNode) updateSegStatesInReplica(insertMsgs []*msgstream
 			}
 		}
 
-		segNum := uniqueSeg[currentSegID]
-		uniqueSeg[currentSegID] = segNum + int64(len(msg.RowIDs))
+		segmentID2NumRows[currentSegID] += int64(msg.GetNumRows())
+		if msg.GetDataSize() == 0 {
+			// In order to be compatible with historical versions
+			// which InternalPb.InsertRequest has no dataSize member
+			colSchema, err := ibNode.replica.getCollectionSchema(collID, msg.EndTs())
+			if err != nil {
+				log.Error("get schema wrong",
+					zap.Int64("segID", currentSegID),
+					zap.Int64("collID", collID),
+					zap.Int64("partID", partitionID),
+					zap.String("chanName", msg.GetShardName()),
+					zap.Error(err))
+				return nil, err
+			}
+			estimatedSizePerRecord, err := typeutil.EstimateSizePerRecord(colSchema)
+			if err != nil {
+				log.Error("Estimate size per record by schema wrong",
+					zap.Int64("segID", currentSegID),
+					zap.Int64("collID", collID),
+					zap.Int64("partID", partitionID),
+					zap.String("chanName", msg.GetShardName()),
+					zap.Error(err))
+				return nil, err
+			}
+			segmentID2DataSize[currentSegID] += uint64(estimatedSizePerRecord) * msg.GetNumRows()
+		} else {
+			segmentID2DataSize[currentSegID] += msg.GetDataSize()
+		}
 	}
 
-	seg2Upload = make([]UniqueID, 0, len(uniqueSeg))
-	for id, num := range uniqueSeg {
+	seg2Upload = make([]UniqueID, 0, len(segmentID2NumRows))
+	for id, num := range segmentID2NumRows {
 		seg2Upload = append(seg2Upload, id)
-		ibNode.replica.updateStatistics(id, num)
+		ibNode.replica.updateStatistics(id, num, segmentID2DataSize[id])
 	}
 
 	return

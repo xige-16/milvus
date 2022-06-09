@@ -1108,6 +1108,11 @@ func importFlushReqFunc(node *DataNode, req *datapb.ImportTaskRequest, res *root
 			fieldStats = append(fieldStats, &datapb.FieldBinlog{FieldID: k, Binlogs: []*datapb.Binlog{v}})
 		}
 
+		var insertDataSize uint64
+		for _, field := range fields {
+			insertDataSize += uint64(field.GetMemorySize())
+		}
+
 		log.Info("now adding segment to the correct DataNode flow graph")
 		// Ask DataCoord to add segment to the corresponding DataNode flow graph.
 		node.dataCoord.AddSegment(context.Background(), &datapb.AddSegmentRequest{
@@ -1119,6 +1124,7 @@ func importFlushReqFunc(node *DataNode, req *datapb.ImportTaskRequest, res *root
 			CollectionId: req.GetImportTask().GetCollectionId(),
 			PartitionId:  req.GetImportTask().GetPartitionId(),
 			RowNum:       int64(rowNum),
+			insertDataSize
 		})
 
 		binlogReq := &datapb.SaveBinlogPathsRequest{

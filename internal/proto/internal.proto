@@ -151,6 +151,7 @@ message InsertRequest {
   repeated schema.FieldData fields_data = 13;
   uint64 num_rows = 14;
   InsertDataVersion version = 15;
+  uint64 data_size = 16;
 }
 
 message SearchRequest {
