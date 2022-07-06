@@ -95,7 +95,7 @@ Retrieve(
     try {
         auto segment = (const milvus::segcore::SegmentInterface*)c_segment;
         auto plan = (const milvus::query::RetrievePlan*)c_plan;
-        auto retrieve_result = segment->Retrieve(plan, timestamp);
+        auto retrieve_result = segment->Retrieve(plan, timestamp, msg_id);
 
         auto size = retrieve_result->ByteSize();
         void* buffer = malloc(size);
