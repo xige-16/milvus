@@ -64,14 +64,15 @@ SegmentInternalInterface::Search(const query::Plan* plan,
 
 std::unique_ptr<proto::segcore::RetrieveResults>
 SegmentInternalInterface::Retrieve(const query::RetrievePlan* plan, Timestamp timestamp, int64_t msg_id) const {
-    std::cout << "start do retrieve in segcore, msg_id = " << msg_id << std::endl;
+    std::cout << "start do retrieve in segcore, msg_id = " << msg_id << ", segment_id = " << get_segment_id()
+              << std::endl;
     std::shared_lock lck(mutex_);
     auto results = std::make_unique<proto::segcore::RetrieveResults>();
     query::ExecPlanNodeVisitor visitor(*this, timestamp, msg_id);
     auto retrieve_results = visitor.get_retrieve_result(*plan->plan_node_);
     retrieve_results.segment_ = (void*)this;
 
-    std::cout << "exec visitor done, msg_id = " << msg_id << std::endl;
+    std::cout << "exec visitor done, msg_id = " << msg_id << ", segment_id = " << get_segment_id() << std::endl;
 
     results->mutable_offset()->Add(retrieve_results.result_offsets_.begin(), retrieve_results.result_offsets_.end());
 
@@ -83,7 +84,8 @@ SegmentInternalInterface::Retrieve(const query::RetrievePlan* plan, Timestamp ti
 
         auto col =
             bulk_subscript(field_id, retrieve_results.result_offsets_.data(), retrieve_results.result_offsets_.size());
-        std::cout << "bulk subscript done on field " << field_id.get() << ", msg_id = " << msg_id << std::endl;
+        std::cout << "bulk subscript done on field " << field_id.get() << ", msg_id = " << msg_id
+                  << ", segment_id = " << get_segment_id() << std::endl;
         auto col_data = col.release();
         fields_data->AddAllocated(col_data);
         if (pk_field_id.has_value() && pk_field_id.value() == field_id) {
@@ -107,7 +109,7 @@ SegmentInternalInterface::Retrieve(const query::RetrievePlan* plan, Timestamp ti
             }
         }
     }
-    std::cout << "retrieve in segcore done, msg_id = " << msg_id << std::endl;
+    std::cout << "retrieve in segcore done, msg_id = " << msg_id << ", segment_id = " << get_segment_id() << std::endl;
     return results;
 }
 }  // namespace milvus::segcore
