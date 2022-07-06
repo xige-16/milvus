@@ -90,7 +90,8 @@ DeleteRetrieveResult(CRetrieveResult* retrieve_result) {
 }
 
 CStatus
-Retrieve(CSegmentInterface c_segment, CRetrievePlan c_plan, uint64_t timestamp, CRetrieveResult* result) {
+Retrieve(
+    CSegmentInterface c_segment, CRetrievePlan c_plan, uint64_t timestamp, CRetrieveResult* result, int64_t msg_id) {
     try {
         auto segment = (const milvus::segcore::SegmentInterface*)c_segment;
         auto plan = (const milvus::query::RetrievePlan*)c_plan;

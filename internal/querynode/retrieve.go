@@ -17,13 +17,15 @@
 package querynode
 
 import (
+	"github.com/milvus-io/milvus/internal/log"
 	"github.com/milvus-io/milvus/internal/proto/segcorepb"
 	"github.com/milvus-io/milvus/internal/storage"
+	"go.uber.org/zap"
 )
 
 // retrieveOnSegments performs retrieve on listed segments
 // all segment ids are validated before calling this function
-func retrieveOnSegments(replica ReplicaInterface, segType segmentType, collID UniqueID, plan *RetrievePlan, segIDs []UniqueID, vcm storage.ChunkManager) ([]*segcorepb.RetrieveResults, error) {
+func retrieveOnSegments(replica ReplicaInterface, segType segmentType, collID UniqueID, plan *RetrievePlan, segIDs []UniqueID, vcm storage.ChunkManager, msgID int64) ([]*segcorepb.RetrieveResults, error) {
 	var retrieveResults []*segcorepb.RetrieveResults
 
 	for _, segID := range segIDs {
@@ -54,7 +56,9 @@ func retrieveHistorical(replica ReplicaInterface, plan *RetrievePlan, collID Uni
 		return retrieveResults, retrieveSegmentIDs, retrievePartIDs, err
 	}
 
-	retrieveResults, err = retrieveOnSegments(replica, segmentTypeSealed, collID, plan, retrieveSegmentIDs, vcm)
+	log.Debug("after create plan, start retrieve segment on historical", zap.Int64("msgID", plan.msgID))
+	retrieveResults, err = retrieveOnSegments(replica, segmentTypeSealed, collID, plan, retrieveSegmentIDs, vcm, plan.msgID)
+	log.Debug("after create plan, retrieve segment on historical done", zap.Int64("msgID", plan.msgID))
 	return retrieveResults, retrievePartIDs, retrieveSegmentIDs, err
 }
 
@@ -69,6 +73,8 @@ func retrieveStreaming(replica ReplicaInterface, plan *RetrievePlan, collID Uniq
 	if err != nil {
 		return retrieveResults, retrieveSegmentIDs, retrievePartIDs, err
 	}
-	retrieveResults, err = retrieveOnSegments(replica, segmentTypeGrowing, collID, plan, retrieveSegmentIDs, vcm)
+	log.Debug("after create plan, start retrieve segment on streaming", zap.Int64("msgID", plan.msgID))
+	retrieveResults, err = retrieveOnSegments(replica, segmentTypeGrowing, collID, plan, retrieveSegmentIDs, vcm, plan.msgID)
+	log.Debug("after create plan, retrieve segment on streaming done", zap.Int64("msgID", plan.msgID))
 	return retrieveResults, retrievePartIDs, retrieveSegmentIDs, err
 }

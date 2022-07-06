@@ -42,6 +42,11 @@ class ExecPlanNodeVisitor : public PlanNodeVisitor {
         placeholder_group_ = nullptr;
     }
 
+    ExecPlanNodeVisitor(const segcore::SegmentInterface& segment, Timestamp timestamp, int64_t msg_id)
+        : segment_(segment), timestamp_(timestamp), msg_id_(msg_id) {
+        placeholder_group_ = nullptr;
+    }
+
     SearchResult
     get_moved_result(PlanNode& node) {
         assert(!search_result_opt_.has_value());
@@ -73,6 +78,7 @@ class ExecPlanNodeVisitor : public PlanNodeVisitor {
  private:
     const segcore::SegmentInterface& segment_;
     Timestamp timestamp_;
+    int64_t msg_id_;
     const PlaceholderGroup* placeholder_group_;
 
     SearchResultOpt search_result_opt_;

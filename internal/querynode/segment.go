@@ -305,8 +305,9 @@ func (s *Segment) retrieve(plan *RetrievePlan) (*segcorepb.RetrieveResults, erro
 
 	var retrieveResult RetrieveResult
 	ts := C.uint64_t(plan.Timestamp)
+	var msgID = C.int64_t(plan.msgID)
 	tr := timerecord.NewTimeRecorder("cgoRetrieve")
-	status := C.Retrieve(s.segmentPtr, plan.cRetrievePlan, ts, &retrieveResult.cRetrieveResult)
+	status := C.Retrieve(s.segmentPtr, plan.cRetrievePlan, ts, &retrieveResult.cRetrieveResult, msgID)
 	metrics.QueryNodeSQSegmentLatencyInCore.WithLabelValues(fmt.Sprint(Params.QueryNodeCfg.GetNodeID()),
 		metrics.QueryLabel).Observe(float64(tr.ElapseSpan().Milliseconds()))
 	log.Debug("do retrieve on segment",

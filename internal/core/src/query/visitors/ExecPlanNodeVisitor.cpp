@@ -124,14 +124,22 @@ ExecPlanNodeVisitor::visit(RetrievePlanNode& node) {
         bitset_holder = ExecExprVisitor(*segment, active_count, timestamp_).call_child(*(node.predicate_));
         bitset_holder.flip();
     }
+    std::cout << "visitor exec predicate done, msg_id = " << this->msg_id_
+              << ", bit set size = " << bitset_holder.size() << std::endl;
 
     segment->mask_with_timestamps(bitset_holder, timestamp_);
 
     segment->mask_with_delete(bitset_holder, active_count, timestamp_);
+
+    std::cout << "visitor mask timestamps and delete done, msg_id = " << msg_id_
+              << ", bit set size = " << bitset_holder.size() << std::endl;
+
     BitsetView final_view = bitset_holder;
     auto seg_offsets = segment->search_ids(final_view, timestamp_);
     retrieve_result.result_offsets_.assign((int64_t*)seg_offsets.data(),
                                            (int64_t*)seg_offsets.data() + seg_offsets.size());
+    std::cout << "visitor search id and assign done, msg_id = " << msg_id_
+              << ", bit set size = " << bitset_holder.size() << std::endl;
     retrieve_result_opt_ = std::move(retrieve_result);
 }
 

@@ -49,7 +49,8 @@ void
 DeleteRetrieveResult(CRetrieveResult* retrieve_result);
 
 CStatus
-Retrieve(CSegmentInterface c_segment, CRetrievePlan c_plan, uint64_t timestamp, CRetrieveResult* result);
+Retrieve(
+    CSegmentInterface c_segment, CRetrievePlan c_plan, uint64_t timestamp, CRetrieveResult* result, int64_t msg_id);
 
 int64_t
 GetMemoryUsageInBytes(CSegmentInterface c_segment);
