@@ -56,9 +56,9 @@ func retrieveHistorical(replica ReplicaInterface, plan *RetrievePlan, collID Uni
 		return retrieveResults, retrieveSegmentIDs, retrievePartIDs, err
 	}
 
-	log.Debug("after create plan, start retrieve segment on historical", zap.Int64("msgID", plan.msgID))
+	log.Debug("start retrieve segment on historical", zap.Int64("msgID", plan.msgID))
 	retrieveResults, err = retrieveOnSegments(replica, segmentTypeSealed, collID, plan, retrieveSegmentIDs, vcm)
-	log.Debug("after create plan, retrieve segment on historical done", zap.Int64("msgID", plan.msgID))
+	log.Debug("retrieve segment on historical done", zap.Int64("msgID", plan.msgID))
 	return retrieveResults, retrievePartIDs, retrieveSegmentIDs, err
 }
 
@@ -73,8 +73,8 @@ func retrieveStreaming(replica ReplicaInterface, plan *RetrievePlan, collID Uniq
 	if err != nil {
 		return retrieveResults, retrieveSegmentIDs, retrievePartIDs, err
 	}
-	log.Debug("after create plan, start retrieve segment on streaming", zap.Int64("msgID", plan.msgID))
+	log.Debug("start retrieve segment on streaming", zap.Int64("msgID", plan.msgID))
 	retrieveResults, err = retrieveOnSegments(replica, segmentTypeGrowing, collID, plan, retrieveSegmentIDs, vcm)
-	log.Debug("after create plan, retrieve segment on streaming done", zap.Int64("msgID", plan.msgID))
+	log.Debug("retrieve segment on streaming done", zap.Int64("msgID", plan.msgID))
 	return retrieveResults, retrievePartIDs, retrieveSegmentIDs, err
 }

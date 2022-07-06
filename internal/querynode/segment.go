@@ -307,10 +307,13 @@ func (s *Segment) retrieve(plan *RetrievePlan) (*segcorepb.RetrieveResults, erro
 	ts := C.uint64_t(plan.Timestamp)
 	var msgID = C.int64_t(plan.msgID)
 	tr := timerecord.NewTimeRecorder("cgoRetrieve")
+	log.Debug("start retrieve on segment",
+		zap.Int64("msgID", plan.msgID),
+		zap.Int64("segmentID", s.segmentID), zap.String("segmentType", s.segmentType.String()))
 	status := C.Retrieve(s.segmentPtr, plan.cRetrievePlan, ts, &retrieveResult.cRetrieveResult, msgID)
 	metrics.QueryNodeSQSegmentLatencyInCore.WithLabelValues(fmt.Sprint(Params.QueryNodeCfg.GetNodeID()),
 		metrics.QueryLabel).Observe(float64(tr.ElapseSpan().Milliseconds()))
-	log.Debug("do retrieve on segment",
+	log.Debug("do retrieve on segment done",
 		zap.Int64("msgID", plan.msgID),
 		zap.Int64("segmentID", s.segmentID), zap.String("segmentType", s.segmentType.String()))
 	if err := HandleCStatus(&status, "Retrieve failed"); err != nil {
