@@ -324,7 +324,7 @@ TEST(CApiTest, MultiDeleteGrowingSegment) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
@@ -335,7 +335,7 @@ TEST(CApiTest, MultiDeleteGrowingSegment) {
     retrive_pks = {2};
     term_expr = std::make_unique<query::TermExprImpl<int64_t>>(FieldId(101), DataType::INT64, retrive_pks);
     plan->plan_node_->predicate_ = std::move(term_expr);
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
     ASSERT_TRUE(suc);
@@ -351,7 +351,7 @@ TEST(CApiTest, MultiDeleteGrowingSegment) {
     assert(del_res.error_code == Success);
 
     // retrieve pks in {2}
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
     ASSERT_TRUE(suc);
@@ -426,7 +426,7 @@ TEST(CApiTest, MultiDeleteSealedSegment) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
@@ -437,7 +437,7 @@ TEST(CApiTest, MultiDeleteSealedSegment) {
     retrive_pks = {2};
     term_expr = std::make_unique<query::TermExprImpl<int64_t>>(FieldId(101), DataType::INT64, retrive_pks);
     plan->plan_node_->predicate_ = std::move(term_expr);
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
     ASSERT_TRUE(suc);
@@ -453,7 +453,7 @@ TEST(CApiTest, MultiDeleteSealedSegment) {
     assert(del_res.error_code == Success);
 
     // retrieve pks in {2}
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
     ASSERT_TRUE(suc);
@@ -500,7 +500,7 @@ TEST(CApiTest, DeleteRepeatedPksFromGrowingSegment) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
@@ -519,7 +519,7 @@ TEST(CApiTest, DeleteRepeatedPksFromGrowingSegment) {
     assert(del_res.error_code == Success);
 
     // retrieve pks in {1, 2, 3}
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
 
     query_result = std::make_unique<proto::segcore::RetrieveResults>();
@@ -583,7 +583,7 @@ TEST(CApiTest, DeleteRepeatedPksFromSealedSegment) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
@@ -603,7 +603,7 @@ TEST(CApiTest, DeleteRepeatedPksFromSealedSegment) {
     assert(del_res.error_code == Success);
 
     // retrieve pks in {1, 2, 3}
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
 
     query_result = std::make_unique<proto::segcore::RetrieveResults>();
@@ -658,7 +658,7 @@ TEST(CApiTest, InsertSamePkAfterDeleteOnGrowingSegment) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
@@ -675,7 +675,7 @@ TEST(CApiTest, InsertSamePkAfterDeleteOnGrowingSegment) {
     assert(res.error_code == Success);
 
     // retrieve pks in {1, 2, 3}, timestamp = 19
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
 
     query_result = std::make_unique<proto::segcore::RetrieveResults>();
@@ -752,7 +752,7 @@ TEST(CApiTest, InsertSamePkAfterDeleteOnSealedSegment) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), dataset.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
@@ -911,7 +911,7 @@ TEST(CApiTest, RetrieveTestWithExpr) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    auto res = Retrieve(segment, plan.get(), dataset.timestamps_[0], &retrieve_result);
+    auto res = Retrieve(segment, plan.get(), dataset.timestamps_[0], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
 
     DeleteRetrievePlan(plan.release());
@@ -3494,7 +3494,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     plan->field_ids_ = target_field_ids;
 
     CRetrieveResult retrieve_result;
-    res = Retrieve(segment, plan.get(), raw_data.timestamps_[N - 1], &retrieve_result);
+    res = Retrieve(segment, plan.get(), raw_data.timestamps_[N - 1], &retrieve_result, 0);
     ASSERT_EQ(res.error_code, Success);
     auto query_result = std::make_unique<proto::segcore::RetrieveResults>();
     auto suc = query_result->ParseFromArray(retrieve_result.proto_blob, retrieve_result.proto_size);
