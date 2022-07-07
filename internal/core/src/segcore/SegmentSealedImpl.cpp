@@ -329,7 +329,7 @@ SegmentSealedImpl::get_schema() const {
 }
 
 void
-SegmentSealedImpl::mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Timestamp timestamp) const {
+SegmentSealedImpl::mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Timestamp timestamp, int64_t msg_id) const {
     auto del_barrier = get_barrier(get_deleted_record(), timestamp);
     if (del_barrier == 0) {
         return;
@@ -338,6 +338,7 @@ SegmentSealedImpl::mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Tim
     if (!bitmap_holder || !bitmap_holder->bitmap_ptr) {
         return;
     }
+    std::cout << "get delete bitmap done, msg_id = " << msg_id << ", segment_id = " << get_segment_id() << std::endl;
     auto& delete_bitset = *bitmap_holder->bitmap_ptr;
     AssertInfo(delete_bitset.size() == bitset.size(), "Deleted bitmap size not equal to filtered bitmap size");
     bitset |= delete_bitset;

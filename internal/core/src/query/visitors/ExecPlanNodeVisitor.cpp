@@ -130,9 +130,13 @@ ExecPlanNodeVisitor::visit(RetrievePlanNode& node) {
 
     segment->mask_with_timestamps(bitset_holder, timestamp_);
 
-    segment->mask_with_delete(bitset_holder, active_count, timestamp_);
+    std::cout << "visitor mask timestamps done, msg_id = " << msg_id_
+              << ", segment_id = " << segment->get_segment_id() << ", bit set size = " << bitset_holder.size()
+              << std::endl;
 
-    std::cout << "visitor mask timestamps and delete done, msg_id = " << msg_id_
+    segment->mask_with_delete(bitset_holder, active_count, timestamp_, msg_id_);
+
+    std::cout << "visitor mask delete done, msg_id = " << msg_id_
               << ", segment_id = " << segment->get_segment_id() << ", bit set size = " << bitset_holder.size()
               << std::endl;
 

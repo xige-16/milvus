@@ -147,7 +147,7 @@ class SegmentSealedImpl : public SegmentSealed {
                   SearchResult& output) const override;
 
     void
-    mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Timestamp timestamp) const override;
+    mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Timestamp timestamp, int64_t msg_id = 0) const override;
 
     bool
     is_system_field_ready() const {

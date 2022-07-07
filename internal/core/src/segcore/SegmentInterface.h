@@ -130,7 +130,7 @@ class SegmentInternalInterface : public SegmentInterface {
                   SearchResult& output) const = 0;
 
     virtual void
-    mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Timestamp timestamp) const = 0;
+    mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Timestamp timestamp, int64_t msg_id = 0) const = 0;
 
     // count of chunk that has index available
     virtual int64_t
