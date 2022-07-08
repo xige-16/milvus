@@ -254,11 +254,10 @@ SegmentSealedImpl::LoadDeletedRecord(const LoadDeletedRecordInfo& info) {
     auto timestamps = reinterpret_cast<const Timestamp*>(info.timestamps);
 
     // step 2: fill pks and timestamps
-    deleted_record_.pks_.set_data_raw(0, pks.data(), size);
-    deleted_record_.timestamps_.set_data_raw(0, timestamps, size);
-    deleted_record_.ack_responder_.AddSegment(0, size);
-    deleted_record_.reserved.fetch_add(size);
-    deleted_record_.record_size_ = size;
+    auto reserved_begin = deleted_record_.reserved.fetch_add(size);
+    deleted_record_.pks_.set_data_raw(reserved_begin, pks.data(), size);
+    deleted_record_.timestamps_.set_data_raw(reserved_begin, timestamps, size);
+    deleted_record_.ack_responder_.AddSegment(reserved_begin, reserved_begin + size);
 }
 
 // internal API: support scalar index only
@@ -334,11 +333,15 @@ SegmentSealedImpl::mask_with_delete(BitsetType& bitset, int64_t ins_barrier, Tim
     if (del_barrier == 0) {
         return;
     }
-    auto bitmap_holder = get_deleted_bitmap(del_barrier, ins_barrier, deleted_record_, insert_record_, timestamp);
+
+    auto segment_id = get_segment_id();
+    std::cout << "get delete barrier done, msg_id = " << msg_id << ", segment_id = " << segment_id << ", del barrier = " << del_barrier << std::endl;
+
+    auto bitmap_holder = get_deleted_bitmap(del_barrier, ins_barrier, deleted_record_, insert_record_, timestamp, segment_id, msg_id);
     if (!bitmap_holder || !bitmap_holder->bitmap_ptr) {
         return;
     }
-    std::cout << "get delete bitmap done, msg_id = " << msg_id << ", segment_id = " << get_segment_id() << std::endl;
+    std::cout << "get delete bitmap done, msg_id = " << msg_id << ", segment_id = " << segment_id << std::endl;
     auto& delete_bitset = *bitmap_holder->bitmap_ptr;
     AssertInfo(delete_bitset.size() == bitset.size(), "Deleted bitmap size not equal to filtered bitmap size");
     bitset |= delete_bitset;

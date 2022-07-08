@@ -87,7 +87,9 @@ get_deleted_bitmap(int64_t del_barrier,
                    int64_t insert_barrier,
                    DeletedRecord& delete_record,
                    const InsertRecord& insert_record,
-                   Timestamp query_timestamp);
+                   Timestamp query_timestamp,
+                   int64_t segment_id = 0,
+                   int64_t msg_id = 0);
 
 std::unique_ptr<DataArray>
 ReverseDataFromIndex(const knowhere::Index* index,

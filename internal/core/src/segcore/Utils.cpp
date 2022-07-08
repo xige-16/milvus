@@ -379,7 +379,9 @@ get_deleted_bitmap(int64_t del_barrier,
                    int64_t insert_barrier,
                    DeletedRecord& delete_record,
                    const InsertRecord& insert_record,
-                   Timestamp query_timestamp) {
+                   Timestamp query_timestamp,
+                   int64_t segment_id,
+                   int64_t msg_id) {
     // if insert_barrier and del_barrier have not changed, use cache data directly
     bool hit_cache = false;
     int64_t old_del_barrier = 0;
@@ -387,6 +389,8 @@ get_deleted_bitmap(int64_t del_barrier,
     if (hit_cache) {
         return current;
     }
+
+    std::cout << "clone lru entry done, msg_id = " << msg_id << ", segment_id = " << segment_id << std::endl;
 
     auto bitmap = current->bitmap_ptr;
 
@@ -404,6 +408,7 @@ get_deleted_bitmap(int64_t del_barrier,
         start = old_del_barrier;
         end = del_barrier;
     }
+
     for (auto del_index = start; del_index < end; ++del_index) {
         // get pk in delete logs
         auto pk = delete_record.pks_[del_index];
@@ -432,6 +437,9 @@ get_deleted_bitmap(int64_t del_barrier,
             bitmap->set(insert_row_offset);
         }
     }
+
+    std::cout << "finished computation new delete bitmap, " << "msg_id = " << msg_id << ", segment_id = " << segment_id << std::endl;
+
     delete_record.insert_lru_entry(current);
     return current;
 }
