@@ -155,8 +155,7 @@ func (q *queryTask) Execute(ctx context.Context) error {
 }
 
 func (q *queryTask) estimateCPUUsage() {
-	//q.cpu = 10
-	q.cpu = q.maxCPU
+	q.cpu = 10
 	if q.cpu > q.maxCPU {
 		q.cpu = q.maxCPU
 	}
