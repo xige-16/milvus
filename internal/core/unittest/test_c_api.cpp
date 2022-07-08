@@ -30,6 +30,8 @@
 #include "segcore/reduce_c.h"
 #include "segcore/Reduce.h"
 #include "test_utils/DataGen.h"
+#include <chrono>
+#include <ctime>
 
 namespace chrono = std::chrono;
 
@@ -3537,4 +3539,23 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     DeleteRetrieveResult(&retrieve_result);
 
     DeleteSegment(segment);
+}
+
+TEST(CApiTest, equalSearch) {
+    Pk2OffsetType pk2Offsets;
+    auto start = std::chrono::system_clock::now();
+
+    for (int i = 0; i < 640000; i++) {
+        pk2Offsets.insert(std::make_pair(i, i));
+    }
+
+    for (int j = 0; j < 160000; j ++) {
+        pk2Offsets.equal_range(j);
+    }
+
+    auto end = std::chrono::system_clock::now();
+
+    std::chrono::duration<double> elapsed_seconds = end-start;
+
+    std::cout << "finished computation at " << "elapsed time: " << elapsed_seconds.count() << "s" << std::endl;
 }
