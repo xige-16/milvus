@@ -3541,17 +3541,42 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     DeleteSegment(segment);
 }
 
+Pk2OffsetType pk2Offsets;
+std::vector<int64_t> dels(160000);
+
+void do_range() {
+    std::cout << "dels size = " << dels.size() << ", pks size = " << pk2Offsets.size() << std::endl;
+
+    for (auto delete_data : dels) {
+        pk2Offsets.equal_range(delete_data);
+    }
+
+}
+
 TEST(CApiTest, equalSearch) {
-    Pk2OffsetType pk2Offsets;
-    auto start = std::chrono::system_clock::now();
 
     for (int i = 0; i < 640000; i++) {
         pk2Offsets.insert(std::make_pair(i, i));
     }
 
     for (int j = 0; j < 160000; j ++) {
-        pk2Offsets.equal_range(j);
+        dels[j] = j;
     }
+
+    auto start = std::chrono::system_clock::now();
+
+    std::thread th1(do_range);
+    std::thread th2(do_range);
+    std::thread th3(do_range);
+    std::thread th4(do_range);
+    std::thread th5(do_range);
+    std::thread th6(do_range);
+    th1.join();
+    th2.join();
+    th3.join();
+    th4.join();
+    th5.join();
+    th6.join();
 
     auto end = std::chrono::system_clock::now();
 

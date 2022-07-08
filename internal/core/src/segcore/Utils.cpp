@@ -412,12 +412,12 @@ get_deleted_bitmap(int64_t del_barrier,
     for (auto del_index = start; del_index < end; ++del_index) {
         // get pk in delete logs
         auto pk = delete_record.pks_[del_index];
-        if (del_index % 100000 == 0) {
+        if (del_index % 20000 == 0) {
             std::cout << "get pk from delete record, msg_id = " << msg_id << ", segment_id = " << segment_id << "del index = " << del_index << std::endl;
         }
         // find insert data which has same pk
         auto segOffsets = insert_record.search_pk(pk, insert_barrier);
-        if (del_index % 100000 == 0) {
+        if (del_index % 20000 == 0) {
             std::cout << "get seg offset from insert record, msg_id = " << msg_id << ", segment_id = " << segment_id << "del index = " << del_index << std::endl;
         }
         for (auto offset : segOffsets) {
