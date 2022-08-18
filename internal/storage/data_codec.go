@@ -298,7 +298,20 @@ func (insertCodec *InsertCodec) Serialize(partitionID UniqueID, segmentID Unique
 
 		// encode fields
 		writer = NewInsertBinlogWriter(field.DataType, insertCodec.Schema.ID, partitionID, segmentID, field.FieldID)
-		eventWriter, err := writer.NextInsertEventWriter()
+		var eventWriter *insertEventWriter
+		var err error
+		if typeutil.IsVectorType(field.DataType) {
+			switch field.DataType {
+			case schemapb.DataType_FloatVector:
+				eventWriter, err = writer.NextInsertEventWriter(singleData.(*FloatVectorFieldData).Dim)
+			case schemapb.DataType_BinaryVector:
+				eventWriter, err = writer.NextInsertEventWriter(singleData.(*BinaryVectorFieldData).Dim)
+			default:
+				return nil, nil, fmt.Errorf("undefined data type %d", field.DataType)
+			}
+		} else {
+			eventWriter, err = writer.NextInsertEventWriter()
+		}
 		if err != nil {
 			writer.Close()
 			return nil, nil, err

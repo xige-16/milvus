@@ -16,17 +16,33 @@
 
 #pragma once
 
-#include <stdint.h>
-#include "Types.h"
+#include <vector>
+#include <memory>
 
-const int64_t INVALID_FIELD_ID = -1;
-const int64_t INVALID_SEG_OFFSET = -1;
-const milvus::PkType INVALID_PK;  // of std::monostate if not set.
-// TODO: default field start id, could get from config.yaml
-const int64_t START_USER_FIELDID = 100;
-const char MAX_LENGTH[] = "max_length";
+#include "storage/DataCodec.h"
 
-// fill followed extra info to binlog file
-const char ORIGIN_SIZE_KEY[] = "original_size";
-const char INDEX_BUILD_ID_KEY[] = "indexBuildID";
-const char BINLOG_FILE_KEY[] = "key";
+namespace milvus::storage {
+
+class InsertData : public DataCodec {
+ public:
+    explicit InsertData(std::shared_ptr<FieldData> data) : DataCodec(data, CodecType::InsertDataType) {
+    }
+
+    std::vector<uint8_t>
+    Serialize(StorageType medium) override;
+
+    void
+    SetFieldDataMeta(const FieldDataMeta& meta) override;
+
+ public:
+    std::vector<uint8_t>
+    serialize_to_remote_file();
+
+    std::vector<uint8_t>
+    serialize_to_local_file();
+
+ private:
+    std::optional<FieldDataMeta> field_data_meta_;
+};
+
+}  // namespace milvus::storage
