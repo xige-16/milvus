@@ -71,14 +71,14 @@ class ScalarFieldIndexing : public FieldIndexing {
     BuildIndexRange(int64_t ack_beg, int64_t ack_end, const VectorBase* vec_base) override;
 
     // concurrent
-    scalar::ScalarIndex<T>*
+    Index::ScalarIndex<T>*
     get_chunk_indexing(int64_t chunk_id) const override {
         Assert(!field_meta_.is_vector());
         return data_.at(chunk_id).get();
     }
 
  private:
-    tbb::concurrent_vector<scalar::ScalarIndexPtr<T>> data_;
+    tbb::concurrent_vector<Index::ScalarIndexPtr<T>> data_;
 };
 
 class VectorFieldIndexing : public FieldIndexing {
@@ -127,7 +127,7 @@ class IndexingRecord {
                     continue;
                 }
                 // flat should be skipped
-                if (!field_meta.get_metric_type().has_value()) {
+                if (!field_meta.GetMetricType().has_value()) {
                     continue;
                 }
             }

@@ -23,7 +23,7 @@ endif()
 
 milvus_add_pkg_config("milvus_storage")
 
-set(STORAGE_FILES parquet_c.cpp PayloadStream.cpp)
+set(STORAGE_FILES parquet_c.cpp PayloadStream.cpp DiskANNFileManager.cpp)
 add_library(milvus_storage SHARED ${STORAGE_FILES})
 
 target_link_libraries( milvus_storage PUBLIC arrow parquet pthread)

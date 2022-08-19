@@ -21,10 +21,10 @@ InsertRecord::InsertRecord(const Schema& schema, int64_t size_per_chunk)
 
         if (field_meta.is_vector()) {
             if (field_meta.get_data_type() == DataType::VECTOR_FLOAT) {
-                this->append_field_data<FloatVector>(field_id, field_meta.get_dim(), size_per_chunk);
+                this->append_field_data<FloatVector>(field_id, field_meta.GetDim(), size_per_chunk);
                 continue;
             } else if (field_meta.get_data_type() == DataType::VECTOR_BINARY) {
-                this->append_field_data<BinaryVector>(field_id, field_meta.get_dim(), size_per_chunk);
+                this->append_field_data<BinaryVector>(field_id, field_meta.GetDim(), size_per_chunk);
                 continue;
             } else {
                 PanicInfo("unsupported");

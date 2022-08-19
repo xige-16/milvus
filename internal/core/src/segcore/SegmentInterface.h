@@ -27,6 +27,7 @@
 #include "common/LoadInfo.h"
 #include "common/BitsetView.h"
 #include "common/QueryResult.h"
+#include "common/QueryInfo.h"
 #include "query/Plan.h"
 #include "query/PlanNode.h"
 #include "pb/schema.pb.h"
@@ -91,10 +92,10 @@ class SegmentInternalInterface : public SegmentInterface {
     }
 
     template <typename T>
-    const scalar::ScalarIndex<T>&
+    const Index::ScalarIndex<T>&
     chunk_scalar_index(FieldId field_id, int64_t chunk_id) const {
         static_assert(IsScalar<T>);
-        using IndexType = scalar::ScalarIndex<T>;
+        using IndexType = Index::ScalarIndex<T>;
         auto base_ptr = chunk_index_impl(field_id, chunk_id);
         auto ptr = dynamic_cast<const IndexType*>(base_ptr);
         AssertInfo(ptr, "entry mismatch");
@@ -130,7 +131,7 @@ class SegmentInternalInterface : public SegmentInterface {
  public:
     virtual void
     vector_search(int64_t vec_count,
-                  query::SearchInfo& search_info,
+                  SearchInfo& search_info,
                   const void* query_data,
                   int64_t query_count,
                   Timestamp timestamp,

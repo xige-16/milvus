@@ -16,28 +16,20 @@
 
 #pragma once
 
-#include <vector>
 #include <memory>
-#include "index/ScalarIndexSort.h"
+#include <knowhere/common/BinarySet.h>
+#include <knowhere/common/Dataset.h>
+#include "knowhere/index/IndexType.h"
+#include "knowhere/index/vector_index/helpers/IndexParameter.h"
+#include <boost/dynamic_bitset.hpp>
 
 namespace milvus::Index {
 
-// TODO: optimize here.
-class BoolIndex : public ScalarIndexSort<bool> {
- public:
-    void
-    BuildWithDataset(const DatasetPtr& dataset) override {
-        auto size = knowhere::GetDatasetRows(dataset);
-        auto data = knowhere::GetDatasetTensor(dataset);
-        proto::schema::BoolArray arr;
-        arr.ParseFromArray(data, size);
-        Build(arr.data().size(), arr.data().data());
-    }
-};
-using BoolIndexPtr = std::unique_ptr<BoolIndex>;
+using BinarySet = knowhere::BinarySet;
+using DatasetPtr = knowhere::DatasetPtr;
 
-inline BoolIndexPtr
-CreateBoolIndex() {
-    return std::make_unique<BoolIndex>();
-}
+using Config = nlohmann::json;
+using TargetBitmap = boost::dynamic_bitset<>;
+using TargetBitmapPtr = std::unique_ptr<TargetBitmap>;
+
 }  // namespace milvus::Index

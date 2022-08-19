@@ -24,7 +24,7 @@
 #include <parquet/arrow/reader.h>
 #include "ColumnType.h"
 
-namespace wrapper {
+namespace milvus::storage {
 
 class PayloadOutputStream;
 class PayloadInputStream;
@@ -102,4 +102,4 @@ class PayloadInputStream : public arrow::io::RandomAccessFile {
     bool closed_;
 };
 
-}  // namespace wrapper
+}  // namespace milvus::storage

@@ -14,30 +14,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
+#include "storage/DiskANNFileManager.h"
 
-#include <vector>
-#include <memory>
-#include "index/ScalarIndexSort.h"
+namespace milvus::storage {
 
-namespace milvus::Index {
+DiskANNFileManagerImpl::DiskANNFileManagerImpl(int64_t collectionId,
+                                               int64_t partiitionId,
+                                               int64_t segmentId,
+                                               const ChunkManager& chunk_manager){};
 
-// TODO: optimize here.
-class BoolIndex : public ScalarIndexSort<bool> {
- public:
-    void
-    BuildWithDataset(const DatasetPtr& dataset) override {
-        auto size = knowhere::GetDatasetRows(dataset);
-        auto data = knowhere::GetDatasetTensor(dataset);
-        proto::schema::BoolArray arr;
-        arr.ParseFromArray(data, size);
-        Build(arr.data().size(), arr.data().data());
-    }
-};
-using BoolIndexPtr = std::unique_ptr<BoolIndex>;
+DiskANNFileManagerImpl::DiskANNFileManagerImpl(){};
 
-inline BoolIndexPtr
-CreateBoolIndex() {
-    return std::make_unique<BoolIndex>();
+std::string
+DiskANNFileManagerImpl::GetRemoteObjectName(const std::string& localfile) {
+    return std::to_string(index_build_id_) + "/" + std::to_string(0) + "/" + std::to_string(partition_id_) + "/" +
+           std::to_string(segment_id_) + localfile;
 }
-}  // namespace milvus::Index
+
+}  // namespace milvus::storage

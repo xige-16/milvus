@@ -17,6 +17,8 @@
 #include "storage/parquet_c.h"
 #include "storage/PayloadStream.h"
 
+namespace wrapper = milvus::storage;
+
 static const char*
 ErrorMsg(const std::string& msg) {
     if (msg.empty())

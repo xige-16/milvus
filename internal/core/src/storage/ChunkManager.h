@@ -16,28 +16,12 @@
 
 #pragma once
 
-#include <vector>
-#include <memory>
-#include "index/ScalarIndexSort.h"
+namespace milvus::storage {
 
-namespace milvus::Index {
-
-// TODO: optimize here.
-class BoolIndex : public ScalarIndexSort<bool> {
- public:
-    void
-    BuildWithDataset(const DatasetPtr& dataset) override {
-        auto size = knowhere::GetDatasetRows(dataset);
-        auto data = knowhere::GetDatasetTensor(dataset);
-        proto::schema::BoolArray arr;
-        arr.ParseFromArray(data, size);
-        Build(arr.data().size(), arr.data().data());
+class ChunkManager {
+    explicit ChunkManager() {
     }
+    ~ChunkManager() = default;
 };
-using BoolIndexPtr = std::unique_ptr<BoolIndex>;
 
-inline BoolIndexPtr
-CreateBoolIndex() {
-    return std::make_unique<BoolIndex>();
-}
-}  // namespace milvus::Index
+}  // namespace milvus::storage

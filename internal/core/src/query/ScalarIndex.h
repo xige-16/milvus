@@ -25,7 +25,7 @@ template <typename T>
 inline scalar::ScalarIndexPtr<T>
 generate_scalar_index(Span<T> data) {
     auto indexing = std::make_unique<scalar::ScalarIndexSort<T>>();
-    indexing->Build(data.row_count(), data.data());
+    indexing->BuildWithDataset(data.row_count(), data.data());
     return indexing;
 }
 
@@ -33,7 +33,7 @@ template <>
 inline scalar::ScalarIndexPtr<std::string>
 generate_scalar_index(Span<std::string> data) {
     auto indexing = scalar::CreateStringIndexSort();
-    indexing->Build(data.row_count(), data.data());
+    indexing->BuildWithDataset(data.row_count(), data.data());
     return indexing;
 }
 

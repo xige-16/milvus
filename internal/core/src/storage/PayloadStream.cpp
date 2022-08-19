@@ -16,7 +16,7 @@
 
 #include "PayloadStream.h"
 
-namespace wrapper {
+namespace milvus::storage {
 
 PayloadOutputStream::PayloadOutputStream() {
     buffer_.reserve(1024 * 1024);
@@ -118,4 +118,4 @@ PayloadInputStream::GetSize() {
     return arrow::Result<int64_t>(size_);
 }
 
-}  // namespace wrapper
+}  // namespace milvus::storage

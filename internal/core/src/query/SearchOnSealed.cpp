@@ -11,6 +11,7 @@
 
 #include <cmath>
 
+#include "common/QueryInfo.h"
 #include "knowhere/index/VecIndex.h"
 #include "knowhere/index/vector_index/ConfAdapter.h"
 #include "knowhere/index/vector_index/ConfAdapterMgr.h"

@@ -16,28 +16,28 @@
 
 #pragma once
 
-#include <vector>
 #include <memory>
-#include "index/ScalarIndexSort.h"
+#include <map>
+#include <limits>
+#include <string>
+#include <utility>
+#include <vector>
+#include <boost/align/aligned_allocator.hpp>
+#include <boost/dynamic_bitset.hpp>
+#include <NamedType/named_type.hpp>
 
-namespace milvus::Index {
+#include "common/FieldMeta.h"
+#include "pb/schema.pb.h"
 
-// TODO: optimize here.
-class BoolIndex : public ScalarIndexSort<bool> {
- public:
-    void
-    BuildWithDataset(const DatasetPtr& dataset) override {
-        auto size = knowhere::GetDatasetRows(dataset);
-        auto data = knowhere::GetDatasetTensor(dataset);
-        proto::schema::BoolArray arr;
-        arr.ParseFromArray(data, size);
-        Build(arr.data().size(), arr.data().data());
-    }
+namespace milvus {
+struct SearchInfo {
+    int64_t topk_;
+    int64_t round_decimal_;
+    FieldId field_id_;
+    knowhere::MetricType metric_type_;
+    knowhere::Config search_params_;
 };
-using BoolIndexPtr = std::unique_ptr<BoolIndex>;
 
-inline BoolIndexPtr
-CreateBoolIndex() {
-    return std::make_unique<BoolIndex>();
-}
-}  // namespace milvus::Index
+using SearchInfoPtr = std::shared_ptr<SearchInfo>;
+
+}  // namespace milvus

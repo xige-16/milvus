@@ -10,6 +10,7 @@
 // or implied. See the License for the specific language governing permissions and limitations under the License
 
 #include "common/BitsetView.h"
+#include "common/QueryInfo.h"
 #include "SearchOnGrowing.h"
 #include "query/SearchBruteForce.h"
 #include "query/SearchOnIndex.h"
@@ -22,7 +23,7 @@ namespace milvus::query {
 //   - Query::ExecWithoutPredicate
 int32_t
 FloatIndexSearch(const segcore::SegmentGrowingImpl& segment,
-                 const query::SearchInfo& info,
+                 const SearchInfo& info,
                  const void* query_data,
                  int64_t num_queries,
                  int64_t ins_barrier,
@@ -75,7 +76,7 @@ FloatIndexSearch(const segcore::SegmentGrowingImpl& segment,
 void
 SearchOnGrowing(const segcore::SegmentGrowingImpl& segment,
                 int64_t ins_barrier,
-                const query::SearchInfo& info,
+                const SearchInfo& info,
                 const void* query_data,
                 int64_t num_queries,
                 const BitsetView& bitset,
