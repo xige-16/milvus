@@ -16,28 +16,40 @@
 
 #pragma once
 
-#include <vector>
-#include <memory>
-#include "index/ScalarIndexSort.h"
+#include <string>
 
-namespace milvus::Index {
+namespace milvus::config {
+    class ChunkMangerConfig {
+    public:
+        static void
+        SetAddress(const std::string& address);
 
-// TODO: optimize here.
-class BoolIndex : public ScalarIndexSort<bool> {
- public:
-    void
-    BuildWithDataset(const DatasetPtr& dataset) override {
-        auto size = knowhere::GetDatasetRows(dataset);
-        auto data = knowhere::GetDatasetTensor(dataset);
-        proto::schema::BoolArray arr;
-        arr.ParseFromArray(data, size);
-        Build(arr.data().size(), arr.data().data());
-    }
-};
-using BoolIndexPtr = std::unique_ptr<BoolIndex>;
+        static std::string
+        GetAddress();
 
-inline BoolIndexPtr
-CreateBoolIndex() {
-    return std::make_unique<BoolIndex>();
-}
-}  // namespace milvus::Index
+        static void
+        SetAccessKey(const std::string& access_key);
+
+        static std::string
+        GetAccessKey();
+
+        static void
+        SetAccessValue(const std::string& access_value);
+
+        static std::string
+        GetAccessValue();
+
+        static void
+        SetUseSSL(bool use_ssl);
+
+        static bool
+        GetUseSSL();
+
+        static void
+        SetBucketName(const std::string& bucket_name);
+
+        static std::string
+        GetBucketName();
+    };
+
+}  // namespace milvus::config

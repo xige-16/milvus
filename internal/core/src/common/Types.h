@@ -31,6 +31,7 @@
 #include <variant>
 
 #include "knowhere/index/vector_index/helpers/IndexParameter.h"
+#include <knowhere/index/IndexType.h>
 #include "pb/schema.pb.h"
 #include "pb/segcore.pb.h"
 #include "pb/plan.pb.h"
@@ -112,6 +113,10 @@ using BitsetTypeOpt = std::optional<BitsetType>;
 template <typename Type>
 using FixedVector = boost::container::vector<Type>;
 
-const FieldId RowFieldID = FieldId(0);
-const FieldId TimestampFieldID = FieldId(1);
+using MetricType = knowhere::MetricType;
+// TODO :: type define milvus index type(vector index type and scalar index type)
+using IndexType = knowhere::IndexType;
+// TODO :: type define milvus index mode, add transfer func from milvus index mode to knowhere index mode
+using IndexMode = knowhere::IndexMode;
+
 }  // namespace milvus

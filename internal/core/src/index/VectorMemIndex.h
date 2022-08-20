@@ -20,45 +20,39 @@
 #include <memory>
 #include <string>
 #include <boost/dynamic_bitset.hpp>
-#include "index/Index.h"
-#include "common/Types.h"
+
+#include "index/VectorIndex.h"
 
 namespace milvus::Index {
 
-template <typename T>
-class ScalarIndex : public IndexBase {
+class VectorMemIndex : public VectorIndex {
  public:
-    virtual void
-    Build(size_t n, const T* values) = 0;
+    explicit VectorMemIndex(const IndexType& index_type, const MetricType& metric_type, const IndexMode& index_mode);
 
-    virtual const TargetBitmapPtr
-    In(size_t n, const T* values) = 0;
+    BinarySet
+    Serialize(const Config& config) override;
 
-    virtual const TargetBitmapPtr
-    NotIn(size_t n, const T* values) = 0;
+    void
+    Load(const BinarySet& binary_set, const Config& config = {}) override;
 
-    virtual const TargetBitmapPtr
-    Range(T value, OpType op) = 0;
+    void
+    BuildWithDataset(const DatasetPtr& dataset, const Config& config = {}) override;
 
-    virtual const TargetBitmapPtr
-    Range(T lower_bound_value, bool lb_inclusive, T upper_bound_value, bool ub_inclusive) = 0;
+    std::unique_ptr<SearchResult>
+    Query(const DatasetPtr dataset, const SearchInfo& search_info, const BitsetView& bitset) override;
 
-    virtual T
-    Reverse_Lookup(size_t offset) const = 0;
+ private:
+    void
+    store_raw_data(const knowhere::DatasetPtr& dataset);
 
-    virtual size_t
-    Count() = 0;
+    void
+    parse_config(Config& config);
 
-    virtual const TargetBitmapPtr
-    Query(const DatasetPtr& dataset);
-
-    virtual int64_t
-    Size() = 0;
+ private:
+    Config config_;
+    knowhere::VecIndexPtr index_ = nullptr;
+    std::vector<uint8_t> raw_data_;
 };
 
-template <typename T>
-using ScalarIndexPtr = std::unique_ptr<ScalarIndex<T>>;
-
+using VectorMemIndexPtr = std::unique_ptr<VectorMemIndex>;
 }  // namespace milvus::Index
-
-#include "index/ScalarIndex-inl.h"

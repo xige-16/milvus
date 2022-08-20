@@ -112,11 +112,11 @@ ScalarFieldIndexing<T>::BuildIndexRange(int64_t ack_beg, int64_t ack_end, const 
         // TODO
         if constexpr (std::is_same_v<T, std::string>) {
             auto indexing = scalar::CreateStringIndexSort();
-            indexing->Build(vec_base->get_size_per_chunk(), chunk.data());
+            indexing->BuildWithDataset(vec_base->get_size_per_chunk(), chunk.data());
             data_[chunk_id] = std::move(indexing);
         } else {
             auto indexing = scalar::CreateScalarIndexSort<T>();
-            indexing->Build(vec_base->get_size_per_chunk(), chunk.data());
+            indexing->BuildWithDataset(vec_base->get_size_per_chunk(), chunk.data());
             data_[chunk_id] = std::move(indexing);
         }
     }

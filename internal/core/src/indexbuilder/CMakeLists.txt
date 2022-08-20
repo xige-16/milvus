@@ -14,7 +14,6 @@ set(INDEXBUILDER_FILES
         VecIndexCreator.cpp
         index_c.cpp
         init_c.cpp
-        utils.cpp
         ScalarIndexCreator.cpp
         )
 

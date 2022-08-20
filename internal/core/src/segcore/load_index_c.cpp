@@ -121,7 +121,7 @@ appendScalarIndex(CLoadIndexInfo c_load_index_info, CBinarySet c_binary_set) {
         bool find_index_type = index_params.count("index_type") > 0 ? true : false;
         AssertInfo(find_index_type == true, "Can't find index type in index_params");
         load_index_info->index =
-            milvus::scalar::IndexFactory::GetInstance().CreateIndex(field_type, index_params["index_type"]);
+            milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex(field_type, index_params["index_type"]);
         load_index_info->index->Load(*binary_set);
         auto status = CStatus();
         status.error_code = Success;

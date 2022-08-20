@@ -146,7 +146,7 @@ DataGen(SchemaPtr schema, int64_t N, uint64_t seed = 42, uint64_t ts_offset = 0,
         auto field_meta = schema->operator[](field_id);
         switch (field_meta.get_data_type()) {
             case DataType::VECTOR_FLOAT: {
-                auto dim = field_meta.get_dim();
+                auto dim = field_meta.GetDim();
                 vector<float> final(dim * N);
                 bool is_ip = starts_with(field_meta.get_name().get(), "normalized");
 #pragma omp parallel for
@@ -173,7 +173,7 @@ DataGen(SchemaPtr schema, int64_t N, uint64_t seed = 42, uint64_t ts_offset = 0,
                 break;
             }
             case DataType::VECTOR_BINARY: {
-                auto dim = field_meta.get_dim();
+                auto dim = field_meta.GetDim();
                 Assert(dim % 8 == 0);
                 vector<uint8_t> data(dim / 8 * N);
                 for (auto& x : data) {
@@ -447,11 +447,11 @@ inline scalar::IndexBasePtr
 GenScalarIndexing(int64_t N, const T* data) {
     if constexpr (std::is_same_v<T, std::string>) {
         auto indexing = scalar::CreateStringIndexSort();
-        indexing->Build(N, data);
+        indexing->BuildWithDataset(N, data);
         return indexing;
     } else {
         auto indexing = scalar::CreateScalarIndexSort<T>();
-        indexing->Build(N, data);
+        indexing->BuildWithDataset(N, data);
         return indexing;
     }
 }

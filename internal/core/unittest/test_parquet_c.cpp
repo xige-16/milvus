@@ -24,6 +24,8 @@
 #include "storage/ColumnType.h"
 #include "storage/PayloadStream.h"
 
+namespace wrapper = milvus::storage;
+
 static void
 WriteToFile(CBuffer cb) {
     auto data_file = std::ofstream("/tmp/wrapper_test_data.dat", std::ios::binary);

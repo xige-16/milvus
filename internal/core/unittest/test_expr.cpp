@@ -637,7 +637,7 @@ TEST(Expr, TestCompareWithScalarIndex) {
     age32_col[0] = 1000;
     GenScalarIndexing(N, age32_col.data());
     auto age32_index = milvus::scalar::CreateScalarIndexSort<int32_t>();
-    age32_index->Build(N, age32_col.data());
+    age32_index->BuildWithDataset(N, age32_col.data());
     load_index_info.field_id = i32_fid.get();
     load_index_info.field_type = Int32;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int32_t>>(age32_index.release());
@@ -648,7 +648,7 @@ TEST(Expr, TestCompareWithScalarIndex) {
     age64_col[0] = 2000;
     GenScalarIndexing(N, age64_col.data());
     auto age64_index = milvus::scalar::CreateScalarIndexSort<int64_t>();
-    age64_index->Build(N, age64_col.data());
+    age64_index->BuildWithDataset(N, age64_col.data());
     load_index_info.field_id = i64_fid.get();
     load_index_info.field_type = Int64;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int64_t>>(age64_index.release());
@@ -726,7 +726,7 @@ TEST(Expr, TestCompareWithScalarIndexMaris) {
     auto str1_col = raw_data.get_col<std::string>(str1_fid);
     GenScalarIndexing(N, str1_col.data());
     auto str1_index = milvus::scalar::CreateScalarIndexSort<std::string>();
-    str1_index->Build(N, str1_col.data());
+    str1_index->BuildWithDataset(N, str1_col.data());
     load_index_info.field_id = str1_fid.get();
     load_index_info.field_type = VarChar;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<std::string>>(str1_index.release());
@@ -736,7 +736,7 @@ TEST(Expr, TestCompareWithScalarIndexMaris) {
     auto str2_col = raw_data.get_col<std::string>(str2_fid);
     GenScalarIndexing(N, str2_col.data());
     auto str2_index = milvus::scalar::CreateScalarIndexSort<std::string>();
-    str2_index->Build(N, str2_col.data());
+    str2_index->BuildWithDataset(N, str2_col.data());
     load_index_info.field_id = str2_fid.get();
     load_index_info.field_type = VarChar;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<std::string>>(str2_index.release());
@@ -1307,7 +1307,7 @@ TEST(Expr, TestBinaryArithOpEvalRangeWithScalarSortIndex) {
     age8_col[0] = 4;
     GenScalarIndexing(N, age8_col.data());
     auto age8_index = milvus::scalar::CreateScalarIndexSort<int8_t>();
-    age8_index->Build(N, age8_col.data());
+    age8_index->BuildWithDataset(N, age8_col.data());
     load_index_info.field_id = i8_fid.get();
     load_index_info.field_type = Int8;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int8_t>>(age8_index.release());
@@ -1318,7 +1318,7 @@ TEST(Expr, TestBinaryArithOpEvalRangeWithScalarSortIndex) {
     age16_col[0] = 2000;
     GenScalarIndexing(N, age16_col.data());
     auto age16_index = milvus::scalar::CreateScalarIndexSort<int16_t>();
-    age16_index->Build(N, age16_col.data());
+    age16_index->BuildWithDataset(N, age16_col.data());
     load_index_info.field_id = i16_fid.get();
     load_index_info.field_type = Int16;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int16_t>>(age16_index.release());
@@ -1329,7 +1329,7 @@ TEST(Expr, TestBinaryArithOpEvalRangeWithScalarSortIndex) {
     age32_col[0] = 2000;
     GenScalarIndexing(N, age32_col.data());
     auto age32_index = milvus::scalar::CreateScalarIndexSort<int32_t>();
-    age32_index->Build(N, age32_col.data());
+    age32_index->BuildWithDataset(N, age32_col.data());
     load_index_info.field_id = i32_fid.get();
     load_index_info.field_type = Int32;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int32_t>>(age32_index.release());
@@ -1340,7 +1340,7 @@ TEST(Expr, TestBinaryArithOpEvalRangeWithScalarSortIndex) {
     age64_col[0] = 2000;
     GenScalarIndexing(N, age64_col.data());
     auto age64_index = milvus::scalar::CreateScalarIndexSort<int64_t>();
-    age64_index->Build(N, age64_col.data());
+    age64_index->BuildWithDataset(N, age64_col.data());
     load_index_info.field_id = i64_fid.get();
     load_index_info.field_type = Int64;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int64_t>>(age64_index.release());
@@ -1351,7 +1351,7 @@ TEST(Expr, TestBinaryArithOpEvalRangeWithScalarSortIndex) {
     age_float_col[0] = 2000;
     GenScalarIndexing(N, age_float_col.data());
     auto age_float_index = milvus::scalar::CreateScalarIndexSort<float>();
-    age_float_index->Build(N, age_float_col.data());
+    age_float_index->BuildWithDataset(N, age_float_col.data());
     load_index_info.field_id = float_fid.get();
     load_index_info.field_type = Float;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<float>>(age_float_index.release());
@@ -1362,7 +1362,7 @@ TEST(Expr, TestBinaryArithOpEvalRangeWithScalarSortIndex) {
     age_double_col[0] = 2000;
     GenScalarIndexing(N, age_double_col.data());
     auto age_double_index = milvus::scalar::CreateScalarIndexSort<double>();
-    age_double_index->Build(N, age_double_col.data());
+    age_double_index->BuildWithDataset(N, age_double_col.data());
     load_index_info.field_id = double_fid.get();
     load_index_info.field_type = Float;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<double>>(age_double_index.release());

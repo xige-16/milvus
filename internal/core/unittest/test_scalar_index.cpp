@@ -48,7 +48,7 @@ TYPED_TEST_P(TypedScalarIndexTest, Constructor) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex(dtype, index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex(dtype, index_type);
     }
 }
 
@@ -57,9 +57,9 @@ TYPED_TEST_P(TypedScalarIndexTest, Count) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         auto arr = GenArr<T>(nb);
-        index->Build(nb, arr.data());
+        index->BuildWithDataset(nb, arr.data());
         ASSERT_EQ(nb, index->Count());
     }
 }
@@ -69,9 +69,9 @@ TYPED_TEST_P(TypedScalarIndexTest, In) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         auto arr = GenArr<T>(nb);
-        index->Build(nb, arr.data());
+        index->BuildWithDataset(nb, arr.data());
         assert_in<T>(index, arr);
     }
 }
@@ -81,9 +81,9 @@ TYPED_TEST_P(TypedScalarIndexTest, NotIn) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         auto arr = GenArr<T>(nb);
-        index->Build(nb, arr.data());
+        index->BuildWithDataset(nb, arr.data());
         assert_not_in<T>(index, arr);
     }
 }
@@ -93,9 +93,9 @@ TYPED_TEST_P(TypedScalarIndexTest, Reverse) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         auto arr = GenArr<T>(nb);
-        index->Build(nb, arr.data());
+        index->BuildWithDataset(nb, arr.data());
         assert_reverse<T>(index, arr);
     }
 }
@@ -105,9 +105,9 @@ TYPED_TEST_P(TypedScalarIndexTest, Range) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         auto arr = GenArr<T>(nb);
-        index->Build(nb, arr.data());
+        index->BuildWithDataset(nb, arr.data());
         assert_range<T>(index, arr);
     }
 }
@@ -117,12 +117,12 @@ TYPED_TEST_P(TypedScalarIndexTest, Codec) {
     auto dtype = milvus::GetDType<T>();
     auto index_types = GetIndexTypes<T>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         auto arr = GenArr<T>(nb);
-        index->Build(nb, arr.data());
+        index->BuildWithDataset(nb, arr.data());
 
         auto binary_set = index->Serialize(nullptr);
-        auto copy_index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<T>(index_type);
+        auto copy_index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<T>(index_type);
         copy_index->Load(binary_set);
 
         ASSERT_EQ(nb, copy_index->Count());

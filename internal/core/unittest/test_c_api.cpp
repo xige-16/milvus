@@ -3472,7 +3472,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     auto age8_col = raw_data.get_col<int8_t>(i8_fid);
     GenScalarIndexing(N, age8_col.data());
     auto age8_index = milvus::scalar::CreateScalarIndexSort<int8_t>();
-    age8_index->Build(N, age8_col.data());
+    age8_index->BuildWithDataset(N, age8_col.data());
     load_index_info.field_id = i8_fid.get();
     load_index_info.field_type = Int8;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int8_t>>(age8_index.release());
@@ -3482,7 +3482,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     auto age16_col = raw_data.get_col<int16_t>(i16_fid);
     GenScalarIndexing(N, age16_col.data());
     auto age16_index = milvus::scalar::CreateScalarIndexSort<int16_t>();
-    age16_index->Build(N, age16_col.data());
+    age16_index->BuildWithDataset(N, age16_col.data());
     load_index_info.field_id = i16_fid.get();
     load_index_info.field_type = Int16;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int16_t>>(age16_index.release());
@@ -3492,7 +3492,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     auto age32_col = raw_data.get_col<int32_t>(i32_fid);
     GenScalarIndexing(N, age32_col.data());
     auto age32_index = milvus::scalar::CreateScalarIndexSort<int32_t>();
-    age32_index->Build(N, age32_col.data());
+    age32_index->BuildWithDataset(N, age32_col.data());
     load_index_info.field_id = i32_fid.get();
     load_index_info.field_type = Int32;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int32_t>>(age32_index.release());
@@ -3502,7 +3502,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     auto age64_col = raw_data.get_col<int64_t>(i64_fid);
     GenScalarIndexing(N, age64_col.data());
     auto age64_index = milvus::scalar::CreateScalarIndexSort<int64_t>();
-    age64_index->Build(N, age64_col.data());
+    age64_index->BuildWithDataset(N, age64_col.data());
     load_index_info.field_id = i64_fid.get();
     load_index_info.field_type = Int64;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<int64_t>>(age64_index.release());
@@ -3512,7 +3512,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     auto age_float_col = raw_data.get_col<float>(float_fid);
     GenScalarIndexing(N, age_float_col.data());
     auto age_float_index = milvus::scalar::CreateScalarIndexSort<float>();
-    age_float_index->Build(N, age_float_col.data());
+    age_float_index->BuildWithDataset(N, age_float_col.data());
     load_index_info.field_id = float_fid.get();
     load_index_info.field_type = Float;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<float>>(age_float_index.release());
@@ -3522,7 +3522,7 @@ TEST(CApiTest, RetriveScalarFieldFromSealedSegmentWithIndex) {
     auto age_double_col = raw_data.get_col<double>(double_fid);
     GenScalarIndexing(N, age_double_col.data());
     auto age_double_index = milvus::scalar::CreateScalarIndexSort<double>();
-    age_double_index->Build(N, age_double_col.data());
+    age_double_index->BuildWithDataset(N, age_double_col.data());
     load_index_info.field_id = double_fid.get();
     load_index_info.field_type = Float;
     load_index_info.index = std::shared_ptr<milvus::scalar::ScalarIndexSort<double>>(age_double_index.release());

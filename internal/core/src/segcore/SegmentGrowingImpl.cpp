@@ -177,7 +177,7 @@ SegmentGrowingImpl::num_chunk() const {
 
 void
 SegmentGrowingImpl::vector_search(int64_t vec_count,
-                                  query::SearchInfo& search_info,
+                                  SearchInfo& search_info,
                                   const void* query_data,
                                   int64_t query_count,
                                   Timestamp timestamp,
@@ -188,7 +188,7 @@ SegmentGrowingImpl::vector_search(int64_t vec_count,
         query::SearchOnSealed(this->get_schema(), sealed_indexing, search_info, query_data, query_count, bitset, output,
                               id_);
     } else {
-        SearchOnGrowing(*this, vec_count, search_info, query_data, query_count, bitset, output);
+        query::SearchOnGrowing(*this, vec_count, search_info, query_data, query_count, bitset, output);
     }
 }
 

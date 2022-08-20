@@ -56,7 +56,7 @@ TEST_F(StringIndexMarisaTest, Constructor) {
 
 TEST_F(StringIndexMarisaTest, Build) {
     auto index = milvus::scalar::CreateStringIndexMarisa();
-    index->Build(strs.size(), strs.data());
+    index->BuildWithDataset(strs.size(), strs.data());
 }
 
 TEST_F(StringIndexMarisaTest, BuildWithDataset) {
@@ -130,7 +130,7 @@ TEST_F(StringIndexMarisaTest, Range) {
 TEST_F(StringIndexMarisaTest, Reverse) {
     auto index_types = GetIndexTypes<std::string>();
     for (const auto& index_type : index_types) {
-        auto index = milvus::scalar::IndexFactory::GetInstance().CreateIndex<std::string>(index_type);
+        auto index = milvus::scalar::IndexFactory::GetInstance().CreateScalarIndex<std::string>(index_type);
         index->BuildWithDataset(str_ds);
         assert_reverse<std::string>(index, strs);
     }
