@@ -33,10 +33,12 @@ set(STORAGE_FILES
         FieldData.cpp
         IndexData.cpp
         InsertData.cpp
-        Event.cpp)
+        Event.cpp
+        LocalChunkManager.cpp 
+        MinioChunkManager.cpp 
+        DiskANNFileManagerImpl.cpp)
 add_library(milvus_storage SHARED ${STORAGE_FILES})
-
-target_link_libraries( milvus_storage PUBLIC milvus_common pthread)
+target_link_libraries( milvus_storage PUBLIC milvus_common boost_system boost_filesystem aws-cpp-sdk-s3 pthread)
 
 if(NOT CMAKE_INSTALL_PREFIX)
     set(CMAKE_INSTALL_PREFIX ${CMAKE_CURRENT_BINARY_DIR})
