@@ -23,6 +23,7 @@ namespace milvus::config {
     std::string MINIO_ACCESS_VALUE;
     std::string MINIO_BUCKET_NAME;
     bool MINIO_USE_SSL = false;
+    std::string LOCAL_PATH_PREFIX = "/tmp";
 
     void ChunkMangerConfig::SetAddress(const std::string &address) {
         MINIO_ADDRESS = address;
@@ -62,6 +63,14 @@ namespace milvus::config {
 
     bool ChunkMangerConfig::GetUseSSL() {
         return MINIO_USE_SSL;
+    }
+
+    void ChunkMangerConfig::SetLocalPathPrefix(const std::string &path_prefix) {
+        LOCAL_PATH_PREFIX = path_prefix;
+    }
+
+    std::string ChunkMangerConfig::GetLocalPathPrefix() {
+        return LOCAL_PATH_PREFIX;
     }
 
 } //namespace milvus::config

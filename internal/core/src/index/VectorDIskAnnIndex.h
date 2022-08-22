@@ -17,7 +17,7 @@
 #pragma once
 
 #include "index/VectorMemIndex.h"
-#include "storage/DiskANNFileManager.h"
+#include "storage/DiskANNFileManagerImpl.h"
 
 #include "knowhere/index/vector_index/IndexDiskANN.h"
 #include "knowhere/index/vector_index/IndexDiskANNConfig.h"
@@ -30,7 +30,7 @@ class VectorDiskAnnIndex : public VectorIndex {
     explicit VectorDiskAnnIndex(const IndexType& index_type,
                                 const MetricType& metric_type,
                                 const IndexMode& index_mode,
-                                std::shared_ptr<storage::DiskANNFileManagerImpl> file_manager);
+                                std::shared_ptr<knowhere::DiskANNFileManagerImpl> file_manager);
     BinarySet
     Serialize(const Config& config) override {
         TODO :: return paths

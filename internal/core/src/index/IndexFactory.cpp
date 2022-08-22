@@ -89,8 +89,10 @@ IndexFactory::CreateVectorIndex(const BuildIndexInfo& build_index_info) {
     // create disk index
     if (is_in_disk_list(index_type)) {
         switch (data_type) {
-            case DataType::VECTOR_FLOAT:
-                return std::make_unique<VectorDiskAnnIndex<float>>(index_type, metric_type, index_mode);
+            case DataType::VECTOR_FLOAT: {
+                auto file_manager = std::make_shared<knowhere::DiskANNFileManagerImpl>(build_index_info.collection_id, build_index_info.partition_id, build_index_info.segment_id);
+                return std::make_unique<VectorDiskAnnIndex<float>>(index_type, metric_type, index_mode, file_manager);
+            }
             default:
                 throw std::invalid_argument(std::string("invalid data type to build disk index: ") +
                                             std::to_string(int(data_type)));

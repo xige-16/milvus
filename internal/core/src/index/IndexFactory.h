@@ -17,13 +17,19 @@
 #pragma once
 
 #include <string>
+#include <mutex>
+#include <shared_mutex>
 
 #include "common/type_c.h"
+#include "config/ConfigChunkManager.h"
 #include "index/Index.h"
 #include "index/ScalarIndex.h"
 #include "index/VectorIndex.h"
 #include "index/IndexInfo.h"
-#include "storage/ChunkManager.h"
+#include "storage/LocalChunkManager.h"
+#include "storage/MinioChunkManager.h"
+#include "storage/Types.h"
+#include "knowhere/common/FileManager.h"
 
 namespace milvus::Index {
 
@@ -39,6 +45,7 @@ class IndexFactory {
     GetInstance() {
         // thread-safe enough after c++ 11
         static IndexFactory instance;
+
         return instance;
     }
 
@@ -57,9 +64,6 @@ private:
     template <typename T>
     ScalarIndexPtr<T>
     CreateScalarIndex(const IndexType& index_type);
-
-private:
-    static std::unique_ptr<storage::>
 };
 
 }  // namespace milvus::Index

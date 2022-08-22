@@ -26,7 +26,7 @@ template <typename T>
 VectorDiskAnnIndex<T>::VectorDiskAnnIndex(const IndexType& index_type,
                                           const MetricType& metric_type,
                                           const IndexMode& index_mode,
-                                          std::shared_ptr<storage::DiskANNFileManagerImpl> file_manager)
+                                          std::shared_ptr<knowhere::DiskANNFileManagerImpl> file_manager)
     : VectorIndex(index_type, index_mode, metric_type), file_manager_(file_manager) {
     index_ = std::make_unique<knowhere::IndexDiskANN<T>>(file_manager->GetLocalFilePrefix(), metric_type, file_manager);
 }
@@ -133,7 +133,7 @@ VectorDiskAnnIndex<T>::parse_build_config(Config& config) {
     // set pq bytes
     auto pq_disk_bytes = GetValueFromConfig<uint32_t>(config, DISK_ANN_PQ_BYTES);
     AssertInfo(pq_disk_bytes.has_value(), "param " + std::string(DISK_ANN_PQ_BYTES) + "is empty");
-    build_config.pq_disk_bytes = pq_disk_bytes.value();
+    build_config.disk_pq_dims = pq_disk_bytes.value();
 
     return build_config;
 }

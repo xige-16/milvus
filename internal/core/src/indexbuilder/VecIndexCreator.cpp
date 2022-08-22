@@ -17,8 +17,6 @@
 #include "indexbuilder/helper.h"
 #include "index/IndexFactory.h"
 #include "knowhere/index/VecIndex.h"
-#include "config/ConfigKnowhere.h"
-#include "pb/index_cgo_msg.pb.h"
 
 namespace milvus::indexbuilder {
 

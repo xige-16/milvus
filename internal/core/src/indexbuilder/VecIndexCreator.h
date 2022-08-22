@@ -19,6 +19,7 @@
 #include "indexbuilder/IndexCreatorBase.h"
 #include "index/VectorIndex.h"
 #include "index/IndexInfo.h"
+#include "pb/index_cgo_msg.pb.h"
 
 namespace milvus::indexbuilder {
 

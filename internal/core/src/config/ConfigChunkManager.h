@@ -50,6 +50,12 @@ namespace milvus::config {
 
         static std::string
         GetBucketName();
+
+        static void
+        SetLocalPathPrefix(const std::string& path_prefix);
+
+        static std::string
+        GetLocalPathPrefix();
     };
 
 }  // namespace milvus::config
