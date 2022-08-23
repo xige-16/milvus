@@ -182,7 +182,7 @@ docker: install
 	./build/build_image.sh
 
 # Build each component and install binary to $GOPATH/bin.
-install: all
+install: get-build-deps all
 	@echo "Installing binary to './bin'"
 	@mkdir -p $(GOPATH)/bin && cp -f $(PWD)/bin/milvus $(GOPATH)/bin/milvus
 	@mkdir -p $(LIBRARY_PATH) && cp -r -P $(PWD)/internal/core/output/lib/*.so* $(LIBRARY_PATH)
