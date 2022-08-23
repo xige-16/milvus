@@ -19,7 +19,7 @@ namespace milvus::query {
 void
 SearchOnGrowing(const segcore::SegmentGrowingImpl& segment,
                 int64_t ins_barrier,
-                const query::SearchInfo& info,
+                const SearchInfo& info,
                 const void* query_data,
                 int64_t num_queries,
                 const BitsetView& bitset,

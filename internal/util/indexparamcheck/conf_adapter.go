@@ -507,3 +507,16 @@ func (adapter *NGTONNGConfAdapter) CheckTrain(params map[string]string) bool {
 func newNGTONNGConfAdapter() *NGTONNGConfAdapter {
 	return &NGTONNGConfAdapter{}
 }
+
+type DISKANNConfAdapter struct {
+	BaseConfAdapter
+}
+
+func (adapter *DISKANNConfAdapter) CheckTrain(params map[string]string) bool {
+	//TODO:: check disk ann params
+	return adapter.BaseConfAdapter.CheckTrain(params)
+}
+
+func newDISKANNConfAdapter() *DISKANNConfAdapter {
+	return &DISKANNConfAdapter{}
+}

@@ -20,7 +20,7 @@ package querynode
 #cgo pkg-config: milvus_common milvus_segcore
 
 #include "segcore/load_index_c.h"
-#include "common/vector_index_c.h"
+#include "common/binary_set_c.h"
 */
 import "C"
 

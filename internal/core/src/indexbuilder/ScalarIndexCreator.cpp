@@ -12,18 +12,23 @@
 #include "indexbuilder/helper.h"
 #include "indexbuilder/ScalarIndexCreator.h"
 #include "index/IndexFactory.h"
+#include "index/IndexInfo.h"
+#include "index/Meta.h"
 
 #include <string>
 
 namespace milvus::indexbuilder {
 
-ScalarIndexCreator::ScalarIndexCreator(CDataType dtype, const char* type_params, const char* index_params) {
-    dtype_ = dtype;
+ScalarIndexCreator::ScalarIndexCreator(DataType dtype, const char* type_params, const char* index_params)
+    : dtype_(dtype) {
     // TODO: move parse-related logic to a common interface.
     Helper::ParseFromString(type_params_, std::string(type_params));
     Helper::ParseFromString(index_params_, std::string(index_params));
     // TODO: create index according to the params.
-    index_ = scalar::IndexFactory::GetInstance().CreateIndex(dtype_, index_type());
+    milvus::Index::BuildIndexInfo index_info;
+    index_info.field_type = dtype_;
+    index_info.index_params[milvus::Index::INDEX_TYPE] = index_type();
+    index_ = Index::IndexFactory::GetInstance().CreateIndex(index_info);
 }
 
 void

@@ -4,7 +4,7 @@ package indexcgowrapper
 #cgo pkg-config: milvus_common
 
 #include <stdlib.h>	// free
-#include "indexbuilder/index_c.h"
+#include "common/binary_set_c.h"
 */
 import "C"
 import (

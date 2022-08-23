@@ -442,6 +442,15 @@ func (it *IndexBuildTask) buildIndex(ctx context.Context) ([]*storage.Blob, erro
 		dataset := indexcgowrapper.GenDataset(fieldData)
 		dType := dataset.DType
 		if dType != schemapb.DataType_None {
+			// TODO:: too ugly
+			it.newIndexParams["collection_id"] = strconv.FormatInt(it.collectionID, 10)
+			it.newIndexParams["partition_id"] = strconv.FormatInt(it.partitionID, 10)
+			it.newIndexParams["segment_id"] = strconv.FormatInt(it.segmentID, 10)
+			it.newIndexParams["field_id"] = strconv.FormatInt(fieldID, 10)
+			it.newIndexParams["index_build_id"] = strconv.FormatInt(it.req.IndexBuildID, 10)
+			it.newIndexParams["index_id"] = strconv.FormatInt(it.req.IndexID, 10)
+			it.newIndexParams["index_version"] = strconv.FormatInt(it.req.Version, 10)
+
 			it.index, err = indexcgowrapper.NewCgoIndex(dType, it.newTypeParams, it.newIndexParams)
 			if err != nil {
 				log.Error("failed to create index", zap.Error(err))
@@ -573,6 +582,17 @@ func (it *IndexBuildTask) Execute(ctx context.Context) error {
 			zap.Int64("buildId", it.req.IndexBuildID),
 			zap.Error(err))
 		return err
+	}
+
+	// check node support disk index
+	if _, ok := it.newIndexParams["index_type"]; ok {
+		if it.newIndexParams["index_type"] == "DISKANN" && !Params.IndexNodeCfg.EnableDisk {
+			it.SetState(TaskStateFailed)
+			log.Error("IndexNode IndexBuildTask Execute check index type failed",
+				zap.String("index type", it.newIndexParams["index_type"]),
+				zap.Bool("enable disk", Params.IndexNodeCfg.EnableDisk))
+			return errors.New("index node don't support build disk index")
+		}
 	}
 
 	defer it.releaseMemory()

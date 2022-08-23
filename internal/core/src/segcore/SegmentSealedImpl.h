@@ -27,6 +27,7 @@
 #include "SealedIndexingRecord.h"
 #include "SegmentSealed.h"
 #include "TimestampIndex.h"
+#include "index/ScalarIndex.h"
 
 namespace milvus::segcore {
 
@@ -34,7 +35,7 @@ class SegmentSealedImpl : public SegmentSealed {
  public:
     explicit SegmentSealedImpl(SchemaPtr schema, int64_t segment_id);
     void
-    LoadIndex(const LoadIndexInfo& info) override;
+    LoadIndex(const Index::LoadIndexInfo& info) override;
     void
     LoadFieldData(const LoadFieldDataInfo& info) override;
     void
@@ -97,7 +98,7 @@ class SegmentSealedImpl : public SegmentSealed {
     SpanBase
     chunk_data_impl(FieldId field_id, int64_t chunk_id) const override;
 
-    const knowhere::Index*
+    const Index::IndexBase*
     chunk_index_impl(FieldId field_id, int64_t chunk_id) const override;
 
     // Calculate: output[i] = Vec[seg_offset[i]],
@@ -142,7 +143,7 @@ class SegmentSealedImpl : public SegmentSealed {
 
     void
     vector_search(int64_t vec_count,
-                  query::SearchInfo& search_info,
+                  SearchInfo& search_info,
                   const void* query_data,
                   int64_t query_count,
                   Timestamp timestamp,
@@ -172,10 +173,10 @@ class SegmentSealedImpl : public SegmentSealed {
     search_ids(const BitsetType& view, Timestamp timestamp) const override;
 
     void
-    LoadVecIndex(const LoadIndexInfo& info);
+    LoadVecIndex(const Index::LoadIndexInfo& info);
 
     void
-    LoadScalarIndex(const LoadIndexInfo& info);
+    LoadScalarIndex(const Index::LoadIndexInfo& info);
 
  private:
     // segment loading state
@@ -188,7 +189,7 @@ class SegmentSealedImpl : public SegmentSealed {
     std::optional<int64_t> row_count_opt_;
 
     // scalar field index
-    std::unordered_map<FieldId, knowhere::IndexPtr> scalar_indexings_;
+    std::unordered_map<FieldId, Index::IndexBasePtr> scalar_indexings_;
     // vector field index
     SealedIndexingRecord vector_indexings_;
 

@@ -109,7 +109,7 @@ class SegmentGrowingImpl : public SegmentGrowing {
     }
 
     // deprecated
-    const knowhere::Index*
+    const Index::IndexBase*
     chunk_index_impl(FieldId field_id, int64_t chunk_id) const final {
         return indexing_record_.get_field_indexing(field_id).get_chunk_indexing(chunk_id);
     }
@@ -175,7 +175,7 @@ class SegmentGrowingImpl : public SegmentGrowing {
 
     void
     vector_search(int64_t vec_count,
-                  query::SearchInfo& search_info,
+                  SearchInfo& search_info,
                   const void* query_data,
                   int64_t query_count,
                   Timestamp timestamp,

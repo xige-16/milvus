@@ -13,6 +13,8 @@
 
 #include <string>
 #include "exceptions/EasyAssert.h"
+#include "config/ConfigChunkManager.h"
+#include "common/Consts.h"
 
 namespace milvus {
 inline bool
@@ -60,5 +62,14 @@ upper_div(int64_t value, int64_t align) {
     auto groups = (value + align - 1) / align;
     return groups;
 }
+
+std::string
+GenLocalInsertPathPrefix(int64_t segment_id, int64_t field_id);
+
+std::string
+GenLocalIndexPathPrefix(int64_t build_id, int64_t index_version);
+
+std::string
+GenIndexRawDataPathPrefix(int64_t build_id, int64_t index_version);
 
 }  // namespace milvus

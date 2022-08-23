@@ -24,7 +24,6 @@
 #include "indexbuilder/VecIndexCreator.h"
 #include "indexbuilder/helper.h"
 #include "indexbuilder/index_c.h"
-#include "indexbuilder/utils.h"
 #include "knowhere/index/VecIndexFactory.h"
 #include "knowhere/index/vector_index/helpers/IndexParameter.h"
 #include "knowhere/index/vector_index/adapter/VectorAdapter.h"
@@ -42,8 +41,8 @@ namespace schemapb = milvus::proto::schema;
 using milvus::indexbuilder::MapParams;
 using milvus::indexbuilder::ScalarIndexCreator;
 using ScalarTestParams = std::pair<MapParams, MapParams>;
-using milvus::scalar::ScalarIndexPtr;
-using milvus::scalar::StringIndexPtr;
+using milvus::Index::ScalarIndexPtr;
+using milvus::Index::StringIndexPtr;
 
 namespace {
 auto
@@ -253,26 +252,26 @@ GenDataset(int64_t N, const knowhere::MetricType& metric_type, bool is_binary, i
     }
 }
 
-using QueryResultPtr = std::unique_ptr<milvus::indexbuilder::VecIndexCreator::QueryResult>;
-void
-PrintQueryResult(const QueryResultPtr& result) {
-    auto nq = result->nq;
-    auto k = result->topk;
-
-    std::stringstream ss_id;
-    std::stringstream ss_dist;
-
-    for (auto i = 0; i < nq; i++) {
-        for (auto j = 0; j < k; ++j) {
-            ss_id << result->ids[i * k + j] << " ";
-            ss_dist << result->distances[i * k + j] << " ";
-        }
-        ss_id << std::endl;
-        ss_dist << std::endl;
-    }
-    std::cout << "id\n" << ss_id.str() << std::endl;
-    std::cout << "dist\n" << ss_dist.str() << std::endl;
-}
+//using QueryResultPtr = std::unique_ptr<milvus::indexbuilder::VecIndexCreator::QueryResult>;
+//void
+//PrintQueryResult(const QueryResultPtr& result) {
+//    auto nq = result->nq;
+//    auto k = result->topk;
+//
+//    std::stringstream ss_id;
+//    std::stringstream ss_dist;
+//
+//    for (auto i = 0; i < nq; i++) {
+//        for (auto j = 0; j < k; ++j) {
+//            ss_id << result->ids[i * k + j] << " ";
+//            ss_dist << result->distances[i * k + j] << " ";
+//        }
+//        ss_id << std::endl;
+//        ss_dist << std::endl;
+//    }
+//    std::cout << "id\n" << ss_id.str() << std::endl;
+//    std::cout << "dist\n" << ss_dist.str() << std::endl;
+//}
 
 float
 L2(const float* point_a, const float* point_b, int dim) {
@@ -323,26 +322,26 @@ CountDistance(
     }
 }
 
-void
-CheckDistances(const QueryResultPtr& result,
-               const knowhere::DatasetPtr& base_dataset,
-               const knowhere::DatasetPtr& query_dataset,
-               const knowhere::MetricType& metric,
-               const float threshold = 1.0e-5) {
-    auto base_vecs = (float*)knowhere::GetDatasetTensor(base_dataset);
-    auto query_vecs = (float*)knowhere::GetDatasetTensor(query_dataset);
-    auto dim = knowhere::GetDatasetDim(base_dataset);
-    auto nq = result->nq;
-    auto k = result->topk;
-    for (auto i = 0; i < nq; i++) {
-        for (auto j = 0; j < k; ++j) {
-            auto dis = result->distances[i * k + j];
-            auto id = result->ids[i * k + j];
-            auto count_dis = CountDistance(query_vecs + i * dim, base_vecs + id * dim, dim, metric);
-            // assert(std::abs(dis - count_dis) < threshold);
-        }
-    }
-}
+//void
+//CheckDistances(const QueryResultPtr& result,
+//               const knowhere::DatasetPtr& base_dataset,
+//               const knowhere::DatasetPtr& query_dataset,
+//               const knowhere::MetricType& metric,
+//               const float threshold = 1.0e-5) {
+//    auto base_vecs = (float*)knowhere::GetDatasetTensor(base_dataset);
+//    auto query_vecs = (float*)knowhere::GetDatasetTensor(query_dataset);
+//    auto dim = knowhere::GetDatasetDim(base_dataset);
+//    auto nq = result->nq;
+//    auto k = result->topk;
+//    for (auto i = 0; i < nq; i++) {
+//        for (auto j = 0; j < k; ++j) {
+//            auto dis = result->distances[i * k + j];
+//            auto id = result->ids[i * k + j];
+//            auto count_dis = CountDistance(query_vecs + i * dim, base_vecs + id * dim, dim, metric);
+//            // assert(std::abs(dis - count_dis) < threshold);
+//        }
+//    }
+//}
 
 auto
 generate_type_params(const MapParams& m) {

@@ -101,7 +101,7 @@ TYPED_TEST_P(TypedScalarIndexCreatorTest, Constructor) {
         auto index_params = tp.second;
         auto serialized_type_params = generate_type_params(type_params);
         auto serialized_index_params = generate_index_params(index_params);
-        auto creator = milvus::indexbuilder::CreateScalarIndex(dtype, serialized_type_params.c_str(),
+        auto creator = milvus::indexbuilder::CreateScalarIndex(milvus::DataType(dtype), serialized_type_params.c_str(),
                                                                serialized_index_params.c_str());
     }
 }
@@ -114,12 +114,12 @@ TYPED_TEST_P(TypedScalarIndexCreatorTest, Codec) {
         auto index_params = tp.second;
         auto serialized_type_params = generate_type_params(type_params);
         auto serialized_index_params = generate_index_params(index_params);
-        auto creator = milvus::indexbuilder::CreateScalarIndex(dtype, serialized_type_params.c_str(),
+        auto creator = milvus::indexbuilder::CreateScalarIndex(milvus::DataType(dtype), serialized_type_params.c_str(),
                                                                serialized_index_params.c_str());
         auto arr = GenArr<T>(nb);
         build_index<T>(creator, arr);
         auto binary_set = creator->Serialize();
-        auto copy_creator = milvus::indexbuilder::CreateScalarIndex(dtype, serialized_type_params.c_str(),
+        auto copy_creator = milvus::indexbuilder::CreateScalarIndex(milvus::DataType(dtype), serialized_type_params.c_str(),
                                                                     serialized_index_params.c_str());
         copy_creator->Load(binary_set);
     }

@@ -14,7 +14,9 @@ milvus_add_pkg_config("milvus_common")
 set(COMMON_SRC
         Schema.cpp
         SystemProperty.cpp
-        vector_index_c.cpp
+        binary_set_c.cpp
+        Utils.cpp
+        init_c.cpp
         )
 
 add_library(milvus_common SHARED ${COMMON_SRC})
