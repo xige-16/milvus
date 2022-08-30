@@ -104,7 +104,7 @@ appendVecIndex(CLoadIndexInfo c_load_index_info, CBinarySet c_binary_set) {
             load_index_info->field_id,      load_index_info->field_type,     load_index_info->index_version,
             load_index_info->index_id,      load_index_info->index_build_id, load_index_info->index_params};
 
-        milvus::Index::Config config;
+        milvus::Config config;
         config["index_files"] = load_index_info->index_files;
         config[milvus::Index::INDEX_BUILD_ID] = load_index_info->index_build_id;
         config[milvus::Index::INDEX_VERSION] = load_index_info->index_version;

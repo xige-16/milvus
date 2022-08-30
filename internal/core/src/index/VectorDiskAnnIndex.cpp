@@ -18,12 +18,10 @@
 #include "index/Meta.h"
 #include "index/Utils.h"
 
-#include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 #include "storage/LocalChunkManager.h"
-#include "storage/MinioChunkManager.h"
 #include "config/ConfigKnowhere.h"
 #include "storage/Util.h"
-#include <boost/filesystem.hpp>
+#include "common/Utils.h"
 
 namespace milvus::Index {
 
@@ -65,10 +63,10 @@ VectorDiskAnnIndex<T>::BuildWithDataset(const DatasetPtr& dataset, const Config&
     build_config.data_path = local_data_path;
 
     auto& local_chunk_manager = storage::LocalChunkManager::GetInstance();
-    auto num = uint32_t(knowhere::GetDatasetRows(dataset));
-    auto dim = uint32_t(knowhere::GetDatasetDim(dataset));
+    auto num = uint32_t(milvus::GetDatasetRows(dataset));
+    auto dim = uint32_t(milvus::GetDatasetDim(dataset));
     auto data_size = num * dim * sizeof(float);
-    auto raw_data = const_cast<void*>(knowhere::GetDatasetTensor(dataset));
+    auto raw_data = const_cast<void*>(milvus::GetDatasetTensor(dataset));
 
     auto total_size = sizeof(num) + sizeof(dim) + data_size;
     std::vector<uint8_t> disk_raw_data(total_size);
@@ -96,7 +94,7 @@ VectorDiskAnnIndex<T>::Query(const DatasetPtr dataset, const SearchInfo& search_
     auto query_config = parse_query_config(const_cast<Config&>(search_info.search_params_));
     AssertInfo(GetMetricType() == search_info.metric_type_,
                "Metric type of field index isn't the same with search info");
-    auto num_queries = knowhere::GetDatasetRows(dataset);
+    auto num_queries = milvus::GetDatasetRows(dataset);
     auto topk = search_info.topk_;
 
     query_config.k = topk;
@@ -106,8 +104,8 @@ VectorDiskAnnIndex<T>::Query(const DatasetPtr dataset, const SearchInfo& search_
     knowhere::DiskANNQueryConfig::Set(cfg, query_config);
 
     auto final = index_->Query(dataset, cfg, bitset);
-    auto ids = knowhere::GetDatasetIDs(final);
-    float* distances = (float*)knowhere::GetDatasetDistance(final);
+    auto ids = milvus::GetDatasetIDs(final);
+    float* distances = (float*)milvus::GetDatasetDistance(final);
 
     auto round_decimal = search_info.round_decimal_;
     auto total_num = num_queries * topk;

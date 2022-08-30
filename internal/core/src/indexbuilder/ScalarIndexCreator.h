@@ -46,7 +46,7 @@ class ScalarIndexCreator : public IndexCreatorBase {
     Index::IndexBasePtr index_ = nullptr;
     proto::indexcgo::TypeParams type_params_;
     proto::indexcgo::IndexParams index_params_;
-    Index::Config config_;
+    Config config_;
     DataType dtype_;
 };
 

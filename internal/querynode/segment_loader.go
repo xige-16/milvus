@@ -519,23 +519,6 @@ func (loader *segmentLoader) loadFieldIndexData(segment *Segment, indexInfo *que
 	return segment.segmentLoadIndexData(indexBuffer, indexInfo, fieldType)
 }
 
-func (loader *segmentLoader) loadFieldDiskIndexData(segment *Segment, indexInfo *querypb.FieldIndexInfo) error {
-	filteredPaths := make([]string, 0, len(indexInfo.IndexFilePaths))
-	for _, indexPath := range indexInfo.IndexFilePaths {
-		if path.Base(indexPath) != storage.IndexParamsKey {
-			filteredPaths = append(filteredPaths, indexPath)
-		}
-	}
-
-	// 2. use index path to update segment
-	indexInfo.IndexFilePaths = filteredPaths
-	fieldType, err := loader.getFieldType(segment, indexInfo.FieldID)
-	if err != nil {
-		return err
-	}
-	return segment.segmentLoadIndexData(nil, indexInfo, fieldType)
-}
-
 func (loader *segmentLoader) loadGrowingSegments(segment *Segment,
 	ids []UniqueID,
 	timestamps []Timestamp,

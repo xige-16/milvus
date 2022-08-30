@@ -14,22 +14,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
+#include "common/Utils.h"
+#include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 
-#include <memory>
-#include <knowhere/common/BinarySet.h>
-#include <knowhere/common/Dataset.h>
-#include "knowhere/index/IndexType.h"
-#include "knowhere/index/vector_index/helpers/IndexParameter.h"
-#include <boost/dynamic_bitset.hpp>
+namespace milvus {
 
-namespace milvus::Index {
 
-using BinarySet = knowhere::BinarySet;
-using DatasetPtr = knowhere::DatasetPtr;
-
-using Config = nlohmann::json;
-using TargetBitmap = boost::dynamic_bitset<>;
-using TargetBitmapPtr = std::unique_ptr<TargetBitmap>;
-
-}  // namespace milvus::Index
+} //namespace milvus

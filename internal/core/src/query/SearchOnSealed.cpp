@@ -12,11 +12,6 @@
 #include <cmath>
 
 #include "common/QueryInfo.h"
-#include "knowhere/index/VecIndex.h"
-#include "knowhere/index/vector_index/ConfAdapter.h"
-#include "knowhere/index/vector_index/ConfAdapterMgr.h"
-#include "knowhere/index/vector_index/helpers/IndexParameter.h"
-#include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 #include "query/SearchBruteForce.h"
 #include "query/SearchOnSealed.h"
 #include "query/helper.h"
@@ -51,12 +46,6 @@ SearchOnSealedIndex(const Schema& schema,
         knowhere::SetMetaTopk(conf, search_info.topk_);
         knowhere::SetMetaMetricType(conf, field_indexing->metric_type_);
         auto index_type = field_indexing->indexing_->GetIndexType();
-        //        auto adapter = knowhere::AdapterMgr::GetInstance().GetAdapter(index_type);
-        //        try {
-        //            adapter->CheckSearch(conf, index_type, field_indexing->indexing_->GetIndexMode());
-        //        } catch (std::exception& e) {
-        //            AssertInfo(false, e.what());
-        //        }
         return field_indexing->indexing_->Query(ds, search_info, bitset);
     }();
 

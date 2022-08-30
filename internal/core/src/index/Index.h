@@ -21,7 +21,6 @@
 
 #include <knowhere/common/BinarySet.h>
 #include <knowhere/common/Dataset.h>
-#include "index/Types.h"
 #include "common/Types.h"
 
 namespace milvus::Index {

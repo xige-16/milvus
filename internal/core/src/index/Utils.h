@@ -20,7 +20,6 @@
 #include <iostream>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include "index/Types.h"
 #include "common/Types.h"
 #include "index/IndexInfo.h"
 
