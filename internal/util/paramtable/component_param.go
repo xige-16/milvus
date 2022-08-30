@@ -728,6 +728,9 @@ type queryNodeConfig struct {
 	LoadMemoryUsageFactor               float64
 	OverloadedMemoryThresholdPercentage float64
 
+	// enable disk
+	EnableDisk bool
+
 	// cache limit
 	CacheEnabled     bool
 	CacheMemoryLimit int64
@@ -765,6 +768,7 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 	p.initMaxGroupNQ()
 	p.initTopKMergeRatio()
 	p.initCPURatio()
+	p.initEnableDisk()
 }
 
 // InitAlias initializes an alias for the QueryNode role.
@@ -848,6 +852,15 @@ func (p *queryNodeConfig) initCacheEnabled() {
 	var err error
 	cacheEnabled := p.Base.LoadWithDefault("queryNode.cache.enabled", "true")
 	p.CacheEnabled, err = strconv.ParseBool(cacheEnabled)
+	if err != nil {
+		panic(err)
+	}
+}
+
+func (p *queryNodeConfig) initEnableDisk() {
+	var err error
+	enableDisk := p.Base.LoadWithDefault("queryNode.enableDisk", "false")
+	p.EnableDisk, err = strconv.ParseBool(enableDisk)
 	if err != nil {
 		panic(err)
 	}
@@ -1217,12 +1230,16 @@ type indexNodeConfig struct {
 
 	CreatedTime time.Time
 	UpdatedTime time.Time
+
+	// enable disk
+	EnableDisk bool
 }
 
 func (p *indexNodeConfig) init(base *BaseTable) {
 	p.Base = base
 	p.NodeID.Store(UniqueID(0))
 	p.initBuildParallel()
+	p.initEnableDisk()
 }
 
 // InitAlias initializes an alias for the IndexNode role.
@@ -1244,4 +1261,13 @@ func (p *indexNodeConfig) GetNodeID() UniqueID {
 		return val.(UniqueID)
 	}
 	return 0
+}
+
+func (p *indexNodeConfig) initEnableDisk() {
+	var err error
+	enableDisk := p.Base.LoadWithDefault("indexNode.enableDisk", "false")
+	p.EnableDisk, err = strconv.ParseBool(enableDisk)
+	if err != nil {
+		panic(err)
+	}
 }

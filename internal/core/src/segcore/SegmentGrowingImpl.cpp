@@ -176,7 +176,7 @@ SegmentGrowingImpl::num_chunk() const {
 }
 
 void
-SegmentGrowingImpl::vector_search(query::SearchInfo& search_info,
+SegmentGrowingImpl::vector_search(SearchInfo& search_info,
                                   const void* query_data,
                                   int64_t query_count,
                                   Timestamp timestamp,

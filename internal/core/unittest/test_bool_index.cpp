@@ -50,24 +50,24 @@ class BoolIndexTest : public ::testing::Test {
 };
 
 TEST_F(BoolIndexTest, Constructor) {
-    auto index = milvus::scalar::CreateBoolIndex();
+    auto index = milvus::Index::CreateBoolIndex();
 }
 
 TEST_F(BoolIndexTest, Count) {
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_true_ds);
         ASSERT_EQ(n, index->Count());
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_false_ds);
         ASSERT_EQ(n, index->Count());
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(half_ds);
         ASSERT_EQ(n, index->Count());
     }
@@ -78,7 +78,7 @@ TEST_F(BoolIndexTest, In) {
     auto false_test = std::make_unique<bool>(false);
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_true_ds);
 
         auto bitset1 = index->In(1, true_test.get());
@@ -89,7 +89,7 @@ TEST_F(BoolIndexTest, In) {
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_false_ds);
 
         auto bitset1 = index->In(1, true_test.get());
@@ -100,7 +100,7 @@ TEST_F(BoolIndexTest, In) {
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(half_ds);
 
         auto bitset1 = index->In(1, true_test.get());
@@ -120,7 +120,7 @@ TEST_F(BoolIndexTest, NotIn) {
     auto false_test = std::make_unique<bool>(false);
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_true_ds);
 
         auto bitset1 = index->NotIn(1, true_test.get());
@@ -131,7 +131,7 @@ TEST_F(BoolIndexTest, NotIn) {
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_false_ds);
 
         auto bitset1 = index->NotIn(1, true_test.get());
@@ -142,7 +142,7 @@ TEST_F(BoolIndexTest, NotIn) {
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(half_ds);
 
         auto bitset1 = index->NotIn(1, true_test.get());
@@ -162,10 +162,10 @@ TEST_F(BoolIndexTest, Codec) {
     auto false_test = std::make_unique<bool>(false);
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_true_ds);
 
-        auto copy_index = milvus::scalar::CreateBoolIndex();
+        auto copy_index = milvus::Index::CreateBoolIndex();
         copy_index->Load(index->Serialize(nullptr));
 
         auto bitset1 = copy_index->NotIn(1, true_test.get());
@@ -176,10 +176,10 @@ TEST_F(BoolIndexTest, Codec) {
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(all_false_ds);
 
-        auto copy_index = milvus::scalar::CreateBoolIndex();
+        auto copy_index = milvus::Index::CreateBoolIndex();
         copy_index->Load(index->Serialize(nullptr));
 
         auto bitset1 = copy_index->NotIn(1, true_test.get());
@@ -190,10 +190,10 @@ TEST_F(BoolIndexTest, Codec) {
     }
 
     {
-        auto index = milvus::scalar::CreateBoolIndex();
+        auto index = milvus::Index::CreateBoolIndex();
         index->BuildWithDataset(half_ds);
 
-        auto copy_index = milvus::scalar::CreateBoolIndex();
+        auto copy_index = milvus::Index::CreateBoolIndex();
         copy_index->Load(index->Serialize(nullptr));
 
         auto bitset1 = copy_index->NotIn(1, true_test.get());

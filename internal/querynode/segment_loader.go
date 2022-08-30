@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/milvus-io/milvus/internal/util/indexparamcheck"
 	"path"
 	"runtime"
 	"runtime/debug"
@@ -226,6 +227,8 @@ func (loader *segmentLoader) loadFiles(segment *Segment,
 		zap.Int64("partitionID", partitionID),
 		zap.Int64("segmentID", segmentID),
 		zap.String("segmentType", segment.getType().String()))
+
+	log.Info("load segment load into", zap.Any("info", loadInfo))
 
 	pkFieldID, err := loader.metaReplica.getPKFieldIDByCollectionID(collectionID)
 	if err != nil {
@@ -465,30 +468,45 @@ func (loader *segmentLoader) loadFieldIndexData(segment *Segment, indexInfo *que
 	futures := make([]*concurrency.Future, 0, len(indexInfo.IndexFilePaths))
 	indexCodec := storage.NewIndexFileBinlogCodec()
 
-	for _, p := range indexInfo.IndexFilePaths {
-		indexPath := p
+	for _, indexPath := range indexInfo.IndexFilePaths {
 		if path.Base(indexPath) != storage.IndexParamsKey {
-			indexFuture := loader.cpuPool.Submit(func() (interface{}, error) {
-				indexBlobFuture := loader.ioPool.Submit(func() (interface{}, error) {
-					log.Debug("load index file", zap.String("path", indexPath))
-					return loader.cm.Read(indexPath)
-				})
-
-				indexBlob, err := indexBlobFuture.Await()
-				if err != nil {
-					return nil, err
-				}
-
-				data, _, _, _, err := indexCodec.Deserialize([]*storage.Blob{{Key: path.Base(indexPath), Value: indexBlob.([]byte)}})
-				return data, err
-			})
-
-			futures = append(futures, indexFuture)
 			filteredPaths = append(filteredPaths, indexPath)
 		}
 	}
 
-	err := concurrency.AwaitAll(futures...)
+	// 2. use index bytes and index path to update segment
+	indexInfo.IndexFilePaths = filteredPaths
+	fieldType, err := loader.getFieldType(segment, indexInfo.FieldID)
+	if err != nil {
+		return err
+	}
+
+	indexParams := funcutil.KeyValuePair2Map(indexInfo.IndexParams)
+	if indexParams["index_type"] == indexparamcheck.IndexDISKANN {
+		return segment.segmentLoadIndexData(nil, indexInfo, fieldType)
+	}
+
+	for _, p := range indexInfo.IndexFilePaths {
+		indexPath := p
+		indexFuture := loader.cpuPool.Submit(func() (interface{}, error) {
+			indexBlobFuture := loader.ioPool.Submit(func() (interface{}, error) {
+				log.Debug("load index file", zap.String("path", indexPath))
+				return loader.cm.Read(indexPath)
+			})
+
+			indexBlob, err := indexBlobFuture.Await()
+			if err != nil {
+				return nil, err
+			}
+
+			data, _, _, _, err := indexCodec.Deserialize([]*storage.Blob{{Key: path.Base(indexPath), Value: indexBlob.([]byte)}})
+			return data, err
+		})
+
+		futures = append(futures, indexFuture)
+	}
+
+	err = concurrency.AwaitAll(futures...)
 	if err != nil {
 		return err
 	}
@@ -498,13 +516,24 @@ func (loader *segmentLoader) loadFieldIndexData(segment *Segment, indexInfo *que
 		indexBuffer = append(indexBuffer, blobs[0].Value)
 	}
 
-	// 2. use index bytes and index path to update segment
+	return segment.segmentLoadIndexData(indexBuffer, indexInfo, fieldType)
+}
+
+func (loader *segmentLoader) loadFieldDiskIndexData(segment *Segment, indexInfo *querypb.FieldIndexInfo) error {
+	filteredPaths := make([]string, 0, len(indexInfo.IndexFilePaths))
+	for _, indexPath := range indexInfo.IndexFilePaths {
+		if path.Base(indexPath) != storage.IndexParamsKey {
+			filteredPaths = append(filteredPaths, indexPath)
+		}
+	}
+
+	// 2. use index path to update segment
 	indexInfo.IndexFilePaths = filteredPaths
 	fieldType, err := loader.getFieldType(segment, indexInfo.FieldID)
 	if err != nil {
 		return err
 	}
-	return segment.segmentLoadIndexData(indexBuffer, indexInfo, fieldType)
+	return segment.segmentLoadIndexData(nil, indexInfo, fieldType)
 }
 
 func (loader *segmentLoader) loadGrowingSegments(segment *Segment,

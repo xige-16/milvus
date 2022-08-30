@@ -13,6 +13,9 @@
 
 #include <string>
 #include "exceptions/EasyAssert.h"
+#include "config/ConfigChunkManager.h"
+#include "common/Consts.h"
+#include <google/protobuf/text_format.h>
 
 namespace milvus {
 inline bool
@@ -59,6 +62,12 @@ upper_div(int64_t value, int64_t align) {
     Assert(align > 0);
     auto groups = (value + align - 1) / align;
     return groups;
+}
+
+inline void
+ParseFromString(google::protobuf::Message& params, const std::string& str) {
+    auto ok = google::protobuf::TextFormat::ParseFromString(str, &params);
+    AssertInfo(ok, "failed to parse params from string");
 }
 
 }  // namespace milvus

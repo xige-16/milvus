@@ -88,3 +88,9 @@ deployments/docker/*/volumes
 # rocksdb
 cwrapper_rocksdb_build/
 internal/kv/rocksdb/cwrapper/
+
+cscope.*
+tags
+
+# local file data
+**/data/*

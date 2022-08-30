@@ -226,6 +226,7 @@ func (broker *globalMetaBroker) getFullIndexInfos(ctx context.Context, collectio
 				IndexParams:    info.IndexParams,
 				IndexFilePaths: info.IndexFilePaths,
 				IndexSize:      int64(info.SerializedSize),
+				IndexVersion:   info.IndexVersion,
 			}
 
 			if len(info.IndexFilePaths) <= 0 {
@@ -280,6 +281,7 @@ func (broker *globalMetaBroker) generateSegmentLoadInfo(ctx context.Context,
 	// set the estimate segment size to segmentLoadInfo
 	segmentLoadInfo.SegmentSize = estimateSegmentSize(segmentLoadInfo)
 
+	log.Debug("to load segment load info", zap.Any("info", segmentLoadInfo))
 	return segmentLoadInfo
 }
 

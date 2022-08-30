@@ -4,7 +4,7 @@ package indexcgowrapper
 #cgo pkg-config: milvus_common
 
 #include <stdlib.h>	// free
-#include "indexbuilder/index_c.h"
+#include "common/binary_set_c.h"
 */
 import "C"
 import (
@@ -32,22 +32,30 @@ func GetBinarySetKeys(cBinarySet C.CBinarySet) ([]string, error) {
 	return ret, nil
 }
 
-func GetBinarySetValue(cBinarySet C.CBinarySet, key string) ([]byte, error) {
+func GetBinarySetValue(cBinarySet C.CBinarySet, key string) ([]byte, int64, error) {
 	cIndexKey := C.CString(key)
 	defer C.free(unsafe.Pointer(cIndexKey))
 	ret := C.GetBinarySetValueSize(cBinarySet, cIndexKey)
-	size := int(ret)
+	size := int64(ret)
 	if size == 0 {
-		return nil, fmt.Errorf("GetBinarySetValueSize size is zero!")
+		// Disk ann index has been saved data to minio/s3 in internal/core
+		return nil, size, nil
 	}
 	value := make([]byte, size)
 	status := C.CopyBinarySetValue(unsafe.Pointer(&value[0]), cIndexKey, cBinarySet)
 
 	if err := HandleCStatus(&status, "CopyBinarySetValue failed"); err != nil {
-		return nil, err
+		return nil, size, err
 	}
 
-	return value, nil
+	return value, size, nil
+}
+
+func GetBinarySetSize(cBinarySet C.CBinarySet, key string) (int64, error) {
+	cIndexKey := C.CString(key)
+	defer C.free(unsafe.Pointer(cIndexKey))
+	ret := C.GetBinarySetValueSize(cBinarySet, cIndexKey)
+	return int64(ret), nil
 }
 
 // HandleCStatus deal with the error returned from CGO

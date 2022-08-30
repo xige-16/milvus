@@ -15,9 +15,13 @@ FROM milvusdb/openblas:ubuntu18.04-20210428 AS openblas
 FROM ubuntu:bionic-20200921
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libtbb-dev  libzstd-dev gfortran netcat iputils-ping ca-certificates && \
+    apt-get install -y --no-install-recommends wget curl libtbb-dev libzstd-dev gfortran netcat iputils-ping ca-certificates uuid-dev libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev && \
     apt-get remove --purge -y && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* \
+    # OneAPI MKL Installer
+    && wget https://registrationcenter-download.intel.com/akdlm/irc_nas/18487/l_BaseKit_p_2022.1.2.146.sh \
+    && sh l_BaseKit_p_2022.1.2.146.sh -a --components intel.oneapi.lin.mkl.devel --action install --eula accept -s \
+    && rm l_BaseKit_p_2022.1.2.146.sh
 
 COPY --from=openblas /usr/lib/libopenblas-r0.3.9.so /usr/lib/
 

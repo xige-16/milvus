@@ -9,21 +9,53 @@
 // is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
 // or implied. See the License for the specific language governing permissions and limitations under the License
 
-#include "indexbuilder/helper.h"
 #include "indexbuilder/ScalarIndexCreator.h"
 #include "index/IndexFactory.h"
+#include "index/IndexInfo.h"
+#include "index/Meta.h"
 
 #include <string>
 
 namespace milvus::indexbuilder {
 
-ScalarIndexCreator::ScalarIndexCreator(CDataType dtype, const char* type_params, const char* index_params) {
-    dtype_ = dtype;
+ScalarIndexCreator::ScalarIndexCreator(DataType dtype, const char* type_params, const char* index_params)
+    : dtype_(dtype) {
     // TODO: move parse-related logic to a common interface.
-    Helper::ParseFromString(type_params_, std::string(type_params));
-    Helper::ParseFromString(index_params_, std::string(index_params));
-    // TODO: create index according to the params.
-    index_ = scalar::IndexFactory::GetInstance().CreateIndex(dtype_, index_type());
+    milvus::ParseFromString(type_params_, std::string(type_params));
+    milvus::ParseFromString(index_params_, std::string(index_params));
+
+    for (auto i = 0; i < type_params_.params_size(); ++i) {
+        const auto& param = type_params_.params(i);
+        config_[param.key()] = param.value();
+    }
+
+    for (auto i = 0; i < index_params_.params_size(); ++i) {
+        const auto& param = index_params_.params(i);
+        config_[param.key()] = param.value();
+    }
+
+    milvus::Index::BuildIndexInfo index_info;
+    index_info.field_type = dtype_;
+    index_info.index_params[milvus::Index::INDEX_TYPE] = index_type();
+    index_ = Index::IndexFactory::GetInstance().CreateIndex(index_info);
+}
+
+ScalarIndexCreator::ScalarIndexCreator(DataType data_type,
+                                       const std::map<std::string, std::string> type_params,
+                                       const std::map<std::string, std::string> index_params)
+    : dtype_(data_type) {
+    for (auto& param : type_params) {
+        config_[param.first] = param.second;
+    }
+
+    for (auto& param : index_params) {
+        config_[param.first] = param.second;
+    }
+
+    milvus::Index::BuildIndexInfo index_info;
+    index_info.field_type = dtype_;
+    index_info.index_params[milvus::Index::INDEX_TYPE] = index_type();
+    index_ = Index::IndexFactory::GetInstance().CreateIndex(index_info);
 }
 
 void
