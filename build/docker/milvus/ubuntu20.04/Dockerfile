@@ -18,7 +18,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Asia/Shanghai
 
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libtbb-dev gfortran netcat iputils-ping ca-certificates libzstd-dev uuid-dev libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev && \
+    apt-get install -y --no-install-recommends curl libtbb-dev gfortran netcat iputils-ping ca-certificates libzstd-dev uuid-dev libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev && \
     apt-get remove --purge -y && \
     rm -rf /var/lib/apt/lists/*
 
