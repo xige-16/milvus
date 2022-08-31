@@ -21,12 +21,8 @@ function install_linux_deps() {
       # for Ubuntu 18.04
       sudo apt install -y g++ gcc make lcov libtool m4 autoconf automake ccache libssl-dev zlib1g-dev libboost-regex-dev \
           libboost-program-options-dev libboost-system-dev libboost-filesystem-dev \
-<<<<<<< HEAD
-          libboost-serialization-dev python3-dev libboost-python-dev libcurl4-openssl-dev gfortran libtbb-dev uuid-dev \
-	  libpulse-dev 
-=======
-          libboost-serialization-dev python3-dev libboost-python-dev libcurl4-openssl-dev gfortran libtbb-dev libzstd-dev
->>>>>>> 1bd87e7c63f544a081370d75b5c6313cd72c73bc
+          libboost-serialization-dev python3-dev libboost-python-dev libcurl4-openssl-dev gfortran libtbb-dev libzstd-dev libaio-dev \
+          uuid-dev libpulse-dev
   elif [[ -x "$(command -v yum)" ]]; then
       # for CentOS 7
       sudo yum install -y epel-release centos-release-scl-rh && \

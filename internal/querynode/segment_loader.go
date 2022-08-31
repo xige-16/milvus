@@ -708,12 +708,16 @@ func (loader *segmentLoader) FromDmlCPLoadDelete(ctx context.Context, collection
 			return ctx.Err()
 		case msgPack, ok := <-stream.Chan():
 			if !ok {
+				err = fmt.Errorf("%w: pChannelName=%v, msgID=%v",
+					ErrReadDeltaMsgFailed,
+					pChannelName,
+					position.GetMsgID())
 				log.Warn("fail to read delta msg",
 					zap.String("pChannelName", pChannelName),
 					zap.ByteString("msgID", position.GetMsgID()),
 					zap.Error(err),
 				)
-				return fmt.Errorf("%w: pChannelName=%v, msgID=%v", ErrReadDeltaMsgFailed, pChannelName, position.GetMsgID())
+				return err
 			}
 
 			if msgPack == nil {
@@ -726,11 +730,6 @@ func (loader *segmentLoader) FromDmlCPLoadDelete(ctx context.Context, collection
 					if dmsg.CollectionID != collectionID {
 						continue
 					}
-					log.Debug("delete pk",
-						zap.Any("pk", dmsg.PrimaryKeys),
-						zap.String("vChannelName", position.GetChannelName()),
-						zap.Any("msg id", position.GetMsgID()),
-					)
 					err = processDeleteMessages(loader.metaReplica, segmentTypeSealed, dmsg, delData)
 					if err != nil {
 						// TODO: panic?
@@ -761,8 +760,8 @@ func (loader *segmentLoader) FromDmlCPLoadDelete(ctx context.Context, collection
 	for segmentID, pks := range delData.deleteIDs {
 		segment, err := loader.metaReplica.getSegmentByID(segmentID, segmentTypeSealed)
 		if err != nil {
-			log.Warn(err.Error())
-			continue
+			log.Warn("failed to get segment", zap.Int64("segment", segmentID), zap.Error(err))
+			return err
 		}
 		offset := segment.segmentPreDelete(len(pks))
 		delData.deleteOffset[segmentID] = offset

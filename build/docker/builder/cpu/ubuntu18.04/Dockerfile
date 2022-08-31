@@ -17,9 +17,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-ce
     g++ gcc gfortran git make ccache libssl-dev zlib1g-dev libboost-regex-dev libboost-program-options-dev libboost-system-dev \
     libboost-filesystem-dev libboost-serialization-dev python3-dev libboost-python-dev libcurl4-openssl-dev libtbb-dev clang-format-10 clang-tidy-10 lcov libtool m4 autoconf automake  && \
     apt-get remove --purge -y && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* 
 
-RUN apt-get update && apt-get install -y --no-install-recommends libzstd-dev
+RUN apt-get update && apt-get install -y --no-install-recommends libzstd-dev libtbb-dev uuid-dev libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev
 
 # Install Go
 ENV GOPATH /go
