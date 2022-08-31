@@ -60,7 +60,7 @@ template <typename T>
 std::optional<T>
 VecIndexCreator::get_config_by_name(const std::string& name) const {
     if (config_.contains(name)) {
-        return knowhere::GetValueFromConfig<T>(config_, name);
+        return Index::GetValueFromConfig<T>(config_, name);
     }
     return std::nullopt;
 }
@@ -73,22 +73,22 @@ VecIndexCreator::dim() {
 }
 
 void
-VecIndexCreator::Build(const knowhere::DatasetPtr& dataset) {
+VecIndexCreator::Build(const milvus::DatasetPtr& dataset) {
     index_->BuildWithDataset(dataset, config_);
 }
 
-knowhere::BinarySet
+milvus::BinarySet
 VecIndexCreator::Serialize() {
     return index_->Serialize(config_);
 }
 
 void
-VecIndexCreator::Load(const knowhere::BinarySet& binary_set) {
+VecIndexCreator::Load(const milvus::BinarySet& binary_set) {
     index_->Load(binary_set, config_);
 }
 
 std::unique_ptr<SearchResult>
-VecIndexCreator::Query(const knowhere::DatasetPtr& dataset, const SearchInfo& search_info, const BitsetView& bitset) {
+VecIndexCreator::Query(const milvus::DatasetPtr& dataset, const SearchInfo& search_info, const BitsetView& bitset) {
     auto vector_index = dynamic_cast<Index::VectorIndex*>(index_.get());
     return vector_index->Query(dataset, search_info, bitset);
 }

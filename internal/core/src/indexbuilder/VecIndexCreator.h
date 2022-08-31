@@ -35,19 +35,19 @@ class VecIndexCreator : public IndexCreatorBase {
                              const std::map<std::string, std::string> index_params);
 
     void
-    Build(const knowhere::DatasetPtr& dataset) override;
+    Build(const milvus::DatasetPtr& dataset) override;
 
-    knowhere::BinarySet
+    milvus::BinarySet
     Serialize() override;
 
     void
-    Load(const knowhere::BinarySet& binary_set) override;
+    Load(const milvus::BinarySet& binary_set) override;
 
     int64_t
     dim();
 
     std::unique_ptr<SearchResult>
-    Query(const knowhere::DatasetPtr& dataset, const SearchInfo& search_info, const BitsetView& bitset);
+    Query(const milvus::DatasetPtr& dataset, const SearchInfo& search_info, const BitsetView& bitset);
 
  private:
     std::string
@@ -70,7 +70,7 @@ class VecIndexCreator : public IndexCreatorBase {
     milvus::Index::IndexBasePtr index_ = nullptr;
     proto::indexcgo::TypeParams type_params_;
     proto::indexcgo::IndexParams index_params_;
-    knowhere::Config config_;
+    Config config_;
     DataType data_type_;
 };
 

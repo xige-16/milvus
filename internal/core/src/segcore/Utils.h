@@ -18,7 +18,6 @@
 #include <vector>
 
 #include "common/QueryResult.h"
-#include "knowhere/index/Index.h"
 #include "segcore/DeletedRecord.h"
 #include "segcore/InsertRecord.h"
 #include "index/Index.h"

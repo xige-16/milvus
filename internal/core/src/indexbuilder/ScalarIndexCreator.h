@@ -30,13 +30,13 @@ class ScalarIndexCreator : public IndexCreatorBase {
                        const std::map<std::string, std::string> index_params);
 
     void
-    Build(const knowhere::DatasetPtr& dataset) override;
+    Build(const milvus::DatasetPtr& dataset) override;
 
-    knowhere::BinarySet
+    milvus::BinarySet
     Serialize() override;
 
     void
-    Load(const knowhere::BinarySet&) override;
+    Load(const milvus::BinarySet&) override;
 
  private:
     std::string

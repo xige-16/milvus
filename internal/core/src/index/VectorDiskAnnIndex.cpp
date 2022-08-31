@@ -255,7 +255,7 @@ VectorDiskAnnIndex<T>::parse_config(Config& config) {
 
     /************************** DiskAnn prepare Params ************************/
     CheckParameter<int>(config, DISK_ANN_PREPARE_THREAD_NUM, stoi_closure, std::optional{8});
-    //    CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{10000});
+//    CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{10000});
     CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{1});
 
     /************************** DiskAnn query Params ************************/

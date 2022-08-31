@@ -17,7 +17,6 @@
 #include "common/SystemProperty.h"
 #include "segcore/FieldIndexing.h"
 #include "index/VectorMemIndex.h"
-#include "knowhere/index/IndexType.h"
 
 namespace milvus::segcore {
 

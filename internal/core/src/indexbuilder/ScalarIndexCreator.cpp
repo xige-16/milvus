@@ -59,17 +59,17 @@ ScalarIndexCreator::ScalarIndexCreator(DataType data_type,
 }
 
 void
-ScalarIndexCreator::Build(const knowhere::DatasetPtr& dataset) {
+ScalarIndexCreator::Build(const milvus::DatasetPtr& dataset) {
     index_->BuildWithDataset(dataset);
 }
 
-knowhere::BinarySet
+milvus::BinarySet
 ScalarIndexCreator::Serialize() {
     return index_->Serialize(config_);
 }
 
 void
-ScalarIndexCreator::Load(const knowhere::BinarySet& binary_set) {
+ScalarIndexCreator::Load(const milvus::BinarySet& binary_set) {
     index_->Load(binary_set);
 }
 
