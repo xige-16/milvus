@@ -38,10 +38,6 @@ std::vector<IndexType>
 NM_List() {
     static std::vector<IndexType> ret{
         knowhere::IndexEnum::INDEX_FAISS_IVFFLAT,
-#ifdef MILVUS_SUPPORT_NSG
-        knowhere::IndexEnum::INDEX_NSG,
-#endif
-        knowhere::IndexEnum::INDEX_RHNSWFlat,
     };
     return ret;
 }

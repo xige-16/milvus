@@ -98,6 +98,15 @@ VectorDiskAnnIndex<T>::Query(const DatasetPtr dataset, const SearchInfo& search_
     auto topk = search_info.topk_;
 
     query_config.k = topk;
+
+    // TODO:: ugly
+    if (query_config.search_list_size <= topk) {
+        query_config.search_list_size = topk + 1;
+    }
+    if (query_config.search_list_size >= 65535 * 3) {
+        query_config.search_list_size = 65535 * 3 - 1;
+    }
+
     AssertInfo(query_config.search_list_size > topk && query_config.search_list_size < 65535 * 3,
                "search_list should be greater then topk and less than 65535 * 3");
     knowhere::Config cfg;
@@ -246,7 +255,8 @@ VectorDiskAnnIndex<T>::parse_config(Config& config) {
 
     /************************** DiskAnn prepare Params ************************/
     CheckParameter<int>(config, DISK_ANN_PREPARE_THREAD_NUM, stoi_closure, std::optional{8});
-    CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{10000});
+    //    CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{10000});
+    CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{1});
 
     /************************** DiskAnn query Params ************************/
     CheckParameter<int>(config, DISK_ANN_QUERY_LIST, stoi_closure, std::nullopt);

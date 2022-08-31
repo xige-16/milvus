@@ -17,7 +17,4 @@
 #include "common/Utils.h"
 #include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 
-namespace milvus {
-
-
-} //namespace milvus
+namespace milvus {}  // namespace milvus
