@@ -14,6 +14,9 @@ FROM milvusdb/openblas:ubuntu20.04-20220825-4feedf1 AS openblas
 #FROM alpine
 FROM ubuntu:focal-20220426
 
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Asia/Shanghai
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libtbb-dev gfortran netcat iputils-ping ca-certificates libzstd-dev uuid-dev libaio-dev libgoogle-perftools-dev clang-format libboost-all-dev && \
     apt-get remove --purge -y && \
