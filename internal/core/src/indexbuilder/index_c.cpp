@@ -158,152 +158,152 @@ LoadIndexFromBinarySet(CIndex index, CBinarySet c_binary_set) {
     return status;
 }
 
-CStatus
-QueryOnFloatVecIndex(CIndex index, int64_t float_value_num, const float* vectors, CIndexQueryResult* res) {
-    auto status = CStatus();
-    try {
-        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
-        auto dim = cIndex->dim();
-        auto row_nums = float_value_num / dim;
-        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
-        auto query_res = cIndex->Query(query_ds);
-        *res = query_res.release();
-
-        status.error_code = Success;
-        status.error_msg = "";
-    } catch (std::exception& e) {
-        status.error_code = UnexpectedError;
-        status.error_msg = strdup(e.what());
-    }
-    return status;
-}
-
-CStatus
-QueryOnFloatVecIndexWithParam(CIndex index,
-                              int64_t float_value_num,
-                              const float* vectors,
-                              const char* serialized_search_params,
-                              CIndexQueryResult* res) {
-    auto status = CStatus();
-    try {
-        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
-        auto dim = cIndex->dim();
-        auto row_nums = float_value_num / dim;
-        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
-        auto query_res = cIndex->QueryWithParam(query_ds, serialized_search_params);
-        *res = query_res.release();
-
-        status.error_code = Success;
-        status.error_msg = "";
-    } catch (std::exception& e) {
-        status.error_code = UnexpectedError;
-        status.error_msg = strdup(e.what());
-    }
-    return status;
-}
-
-CStatus
-QueryOnBinaryVecIndex(CIndex index, int64_t data_size, const uint8_t* vectors, CIndexQueryResult* res) {
-    auto status = CStatus();
-    try {
-        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
-        auto dim = cIndex->dim();
-        auto row_nums = (data_size * 8) / dim;
-        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
-        auto query_res = cIndex->Query(query_ds);
-        *res = query_res.release();
-
-        status.error_code = Success;
-        status.error_msg = "";
-    } catch (std::exception& e) {
-        status.error_code = UnexpectedError;
-        status.error_msg = strdup(e.what());
-    }
-    return status;
-}
-
-CStatus
-QueryOnBinaryVecIndexWithParam(CIndex index,
-                               int64_t data_size,
-                               const uint8_t* vectors,
-                               const char* serialized_search_params,
-                               CIndexQueryResult* res) {
-    auto status = CStatus();
-    try {
-        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
-        auto dim = cIndex->dim();
-        auto row_nums = (data_size * 8) / dim;
-        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
-        auto query_res = cIndex->QueryWithParam(query_ds, serialized_search_params);
-        *res = query_res.release();
-
-        status.error_code = Success;
-        status.error_msg = "";
-    } catch (std::exception& e) {
-        status.error_code = UnexpectedError;
-        status.error_msg = strdup(e.what());
-    }
-    return status;
-}
-
-CStatus
-CreateQueryResult(CIndexQueryResult* res) {
-    auto status = CStatus();
-    try {
-        auto query_result = std::make_unique<milvus::indexbuilder::VecIndexCreator::QueryResult>();
-        *res = query_result.release();
-
-        status.error_code = Success;
-        status.error_msg = "";
-    } catch (std::exception& e) {
-        status.error_code = UnexpectedError;
-        status.error_msg = strdup(e.what());
-    }
-    return status;
-}
-
-int64_t
-NqOfQueryResult(CIndexQueryResult res) {
-    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
-    return c_res->nq;
-}
-
-int64_t
-TopkOfQueryResult(CIndexQueryResult res) {
-    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
-    return c_res->topk;
-}
-
-void
-GetIdsOfQueryResult(CIndexQueryResult res, int64_t* ids) {
-    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
-    auto nq = c_res->nq;
-    auto k = c_res->topk;
-    // TODO: how could we avoid memory copy whenever this called
-    memcpy(ids, c_res->ids.data(), sizeof(int64_t) * nq * k);
-}
-
-void
-GetDistancesOfQueryResult(CIndexQueryResult res, float* distances) {
-    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
-    auto nq = c_res->nq;
-    auto k = c_res->topk;
-    // TODO: how could we avoid memory copy whenever this called
-    memcpy(distances, c_res->distances.data(), sizeof(float) * nq * k);
-}
-
-CStatus
-DeleteIndexQueryResult(CIndexQueryResult res) {
-    auto status = CStatus();
-    try {
-        auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
-        delete c_res;
-
-        status.error_code = Success;
-        status.error_msg = "";
-    } catch (std::exception& e) {
-        status.error_code = UnexpectedError;
-        status.error_msg = strdup(e.what());
-    }
-    return status;
-}
+// CStatus
+// QueryOnFloatVecIndex(CIndex index, int64_t float_value_num, const float* vectors, CIndexQueryResult* res) {
+//    auto status = CStatus();
+//    try {
+//        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
+//        auto dim = cIndex->dim();
+//        auto row_nums = float_value_num / dim;
+//        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
+//        auto query_res = cIndex->Query(query_ds);
+//        *res = query_res.release();
+//
+//        status.error_code = Success;
+//        status.error_msg = "";
+//    } catch (std::exception& e) {
+//        status.error_code = UnexpectedError;
+//        status.error_msg = strdup(e.what());
+//    }
+//    return status;
+//}
+//
+// CStatus
+// QueryOnFloatVecIndexWithParam(CIndex index,
+//                              int64_t float_value_num,
+//                              const float* vectors,
+//                              const char* serialized_search_params,
+//                              CIndexQueryResult* res) {
+//    auto status = CStatus();
+//    try {
+//        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
+//        auto dim = cIndex->dim();
+//        auto row_nums = float_value_num / dim;
+//        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
+//        auto query_res = cIndex->QueryWithParam(query_ds, serialized_search_params);
+//        *res = query_res.release();
+//
+//        status.error_code = Success;
+//        status.error_msg = "";
+//    } catch (std::exception& e) {
+//        status.error_code = UnexpectedError;
+//        status.error_msg = strdup(e.what());
+//    }
+//    return status;
+//}
+//
+// CStatus
+// QueryOnBinaryVecIndex(CIndex index, int64_t data_size, const uint8_t* vectors, CIndexQueryResult* res) {
+//    auto status = CStatus();
+//    try {
+//        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
+//        auto dim = cIndex->dim();
+//        auto row_nums = (data_size * 8) / dim;
+//        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
+//        auto query_res = cIndex->Query(query_ds);
+//        *res = query_res.release();
+//
+//        status.error_code = Success;
+//        status.error_msg = "";
+//    } catch (std::exception& e) {
+//        status.error_code = UnexpectedError;
+//        status.error_msg = strdup(e.what());
+//    }
+//    return status;
+//}
+//
+// CStatus
+// QueryOnBinaryVecIndexWithParam(CIndex index,
+//                               int64_t data_size,
+//                               const uint8_t* vectors,
+//                               const char* serialized_search_params,
+//                               CIndexQueryResult* res) {
+//    auto status = CStatus();
+//    try {
+//        auto cIndex = (milvus::indexbuilder::VecIndexCreator*)index;
+//        auto dim = cIndex->dim();
+//        auto row_nums = (data_size * 8) / dim;
+//        auto query_ds = knowhere::GenDataset(row_nums, dim, vectors);
+//        auto query_res = cIndex->QueryWithParam(query_ds, serialized_search_params);
+//        *res = query_res.release();
+//
+//        status.error_code = Success;
+//        status.error_msg = "";
+//    } catch (std::exception& e) {
+//        status.error_code = UnexpectedError;
+//        status.error_msg = strdup(e.what());
+//    }
+//    return status;
+//}
+//
+// CStatus
+// CreateQueryResult(CIndexQueryResult* res) {
+//    auto status = CStatus();
+//    try {
+//        auto query_result = std::make_unique<milvus::indexbuilder::VecIndexCreator::QueryResult>();
+//        *res = query_result.release();
+//
+//        status.error_code = Success;
+//        status.error_msg = "";
+//    } catch (std::exception& e) {
+//        status.error_code = UnexpectedError;
+//        status.error_msg = strdup(e.what());
+//    }
+//    return status;
+//}
+//
+// int64_t
+// NqOfQueryResult(CIndexQueryResult res) {
+//    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
+//    return c_res->nq;
+//}
+//
+// int64_t
+// TopkOfQueryResult(CIndexQueryResult res) {
+//    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
+//    return c_res->topk;
+//}
+//
+// void
+// GetIdsOfQueryResult(CIndexQueryResult res, int64_t* ids) {
+//    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
+//    auto nq = c_res->nq;
+//    auto k = c_res->topk;
+//    // TODO: how could we avoid memory copy whenever this called
+//    memcpy(ids, c_res->ids.data(), sizeof(int64_t) * nq * k);
+//}
+//
+// void
+// GetDistancesOfQueryResult(CIndexQueryResult res, float* distances) {
+//    auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
+//    auto nq = c_res->nq;
+//    auto k = c_res->topk;
+//    // TODO: how could we avoid memory copy whenever this called
+//    memcpy(distances, c_res->distances.data(), sizeof(float) * nq * k);
+//}
+//
+// CStatus
+// DeleteIndexQueryResult(CIndexQueryResult res) {
+//    auto status = CStatus();
+//    try {
+//        auto c_res = (milvus::indexbuilder::VecIndexCreator::QueryResult*)res;
+//        delete c_res;
+//
+//        status.error_code = Success;
+//        status.error_msg = "";
+//    } catch (std::exception& e) {
+//        status.error_code = UnexpectedError;
+//        status.error_msg = strdup(e.what());
+//    }
+//    return status;
+//}

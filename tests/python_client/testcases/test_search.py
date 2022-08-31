@@ -488,6 +488,48 @@ class TestCollectionSearchInvalid(TestcaseBase):
                                                          "err_msg": "failed to create query plan: cannot parse "
                                                                     "expression: %s" % expression})
 
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_search_with_diskann_index(self):
+        """
+        target: test delete after creating index
+        method: 1.create collection , insert data, primary_field is string field
+                2.create string and float index ,delete entities, query
+                3.search
+        expected: assert index and deleted id not in search result
+        """
+        # 1. initialize with data
+
+        nb = 10000
+        dim = 128
+        collection_w, _vectors, _, insert_ids = self.init_collection_general(prefix, True,
+                                                                             nb, dim=dim,
+                                                                             is_index=True)[0:4]
+
+
+
+        # 2. create index
+        default_index = {"index_type": "DISKANN", "metric_type": "L2", "params": {}}
+        collection_w.create_index(ct.default_float_vec_field_name, default_index)
+        collection_w.load()
+
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_create_index_with_diskann_normal(self):
+        """
+        target: test create index with diskann
+        method: 1.create collection and insert data
+                2.create diskann index ,then load
+                3.search
+        expected: create index successfully
+        """
+        c_name = cf.gen_unique_str(prefix)
+        collection_w = self.init_collection_wrap(name=c_name)
+        data = cf.gen_default_list_data()
+        collection_w.insert(data=data)
+
+        default_diskann_index = {"index_type": "DISKANN", "metric_type": "L2", "params": {}}
+        index, _ = self.index_wrap.init_index(collection_w.collection, default_float_vec_field_name,
+                                            default_diskann_index)
+
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_partition_invalid_type(self, get_invalid_partition):
         """

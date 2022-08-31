@@ -15,9 +15,8 @@
 #include "index/StringIndexSort.h"
 
 #include "common/SystemProperty.h"
-#include "knowhere/index/vector_index/IndexIVF.h"
-#include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 #include "segcore/FieldIndexing.h"
+#include "index/VectorMemIndex.h"
 
 namespace milvus::segcore {
 
@@ -35,10 +34,15 @@ VectorFieldIndexing::BuildIndexRange(int64_t ack_beg, int64_t ack_end, const Vec
     for (int chunk_id = ack_beg; chunk_id < ack_end; chunk_id++) {
         const auto& chunk = source->get_chunk(chunk_id);
         // build index for chunk
-        auto indexing = std::make_unique<knowhere::IVF>();
+        //        auto indexing = std::make_unique<knowhere::IVF>();
+        //        auto dataset = knowhere::GenDataset(source->get_size_per_chunk(), dim, chunk.data());
+        //        indexing->Train(dataset, conf);
+        //        indexing->AddWithoutIds(dataset, conf);
+        // TODO:: metric type
+        auto indexing = std::make_unique<Index::VectorMemIndex>(knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT, "L2",
+                                                                IndexMode::MODE_CPU);
         auto dataset = knowhere::GenDataset(source->get_size_per_chunk(), dim, chunk.data());
-        indexing->Train(dataset, conf);
-        indexing->AddWithoutIds(dataset, conf);
+        indexing->BuildWithDataset(dataset, conf);
         data_[chunk_id] = std::move(indexing);
     }
 }
@@ -101,22 +105,26 @@ IndexingRecord::UpdateResourceAck(int64_t chunk_ack, const InsertRecord& record)
 template <typename T>
 void
 ScalarFieldIndexing<T>::BuildIndexRange(int64_t ack_beg, int64_t ack_end, const VectorBase* vec_base) {
+    auto dim = field_meta_.get_dim();
     auto source = dynamic_cast<const ConcurrentVector<T>*>(vec_base);
     AssertInfo(source, "vec_base can't cast to ConcurrentVector type");
     auto num_chunk = source->num_chunk();
     AssertInfo(ack_end <= num_chunk, "Ack_end is bigger than num_chunk");
     data_.grow_to_at_least(ack_end);
+
     for (int chunk_id = ack_beg; chunk_id < ack_end; chunk_id++) {
         const auto& chunk = source->get_chunk(chunk_id);
+        auto data_set = knowhere::GenDataset(vec_base->get_size_per_chunk(), dim, chunk.data());
+
         // build index for chunk
         // TODO
         if constexpr (std::is_same_v<T, std::string>) {
-            auto indexing = scalar::CreateStringIndexSort();
-            indexing->Build(vec_base->get_size_per_chunk(), chunk.data());
+            auto indexing = Index::CreateStringIndexSort();
+            indexing->BuildWithDataset(data_set, {});
             data_[chunk_id] = std::move(indexing);
         } else {
-            auto indexing = scalar::CreateScalarIndexSort<T>();
-            indexing->Build(vec_base->get_size_per_chunk(), chunk.data());
+            auto indexing = Index::CreateScalarIndexSort<T>();
+            indexing->BuildWithDataset(data_set, {});
             data_[chunk_id] = std::move(indexing);
         }
     }

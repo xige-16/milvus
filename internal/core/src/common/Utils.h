@@ -13,8 +13,43 @@
 
 #include <string>
 #include "exceptions/EasyAssert.h"
+#include "config/ConfigChunkManager.h"
+#include "common/Consts.h"
+#include <google/protobuf/text_format.h>
+#include "knowhere/index/vector_index/adapter/VectorAdapter.h"
 
 namespace milvus {
+
+inline DatasetPtr
+GenDataset(const int64_t nb, const int64_t dim, const void* xb) {
+    return knowhere::GenDataset(nb, dim, xb);
+}
+
+inline const float*
+GetDatasetDistance(const DatasetPtr& dataset) {
+    return knowhere::GetDatasetDistance(dataset);
+}
+
+inline const int64_t*
+GetDatasetIDs(const DatasetPtr& dataset) {
+    return knowhere::GetDatasetIDs(dataset);
+}
+
+inline int64_t
+GetDatasetRows(const DatasetPtr& dataset) {
+    return knowhere::GetDatasetRows(dataset);
+}
+
+inline const void*
+GetDatasetTensor(const DatasetPtr& dataset) {
+    return knowhere::GetDatasetTensor(dataset);
+}
+
+inline int64_t
+GetDatasetDim(const DatasetPtr& dataset) {
+    return knowhere::GetDatasetDim(dataset);
+}
+
 inline bool
 PrefixMatch(const std::string& str, const std::string& prefix) {
     auto ret = strncmp(str.c_str(), prefix.c_str(), prefix.length());
@@ -59,6 +94,12 @@ upper_div(int64_t value, int64_t align) {
     Assert(align > 0);
     auto groups = (value + align - 1) / align;
     return groups;
+}
+
+inline void
+ParseFromString(google::protobuf::Message& params, const std::string& str) {
+    auto ok = google::protobuf::TextFormat::ParseFromString(str, &params);
+    AssertInfo(ok, "failed to parse params from string");
 }
 
 }  // namespace milvus

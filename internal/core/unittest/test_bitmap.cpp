@@ -22,8 +22,9 @@ TEST(Bitmap, Naive) {
     int N = 10000;
     auto raw_data = DataGen(schema, N);
     auto vec = raw_data.get_col<float>(field_id);
-    auto sort_index = std::make_shared<scalar::ScalarIndexSort<float>>();
-    sort_index->Build(N, vec.data());
+    auto sort_index = std::make_shared<Index::ScalarIndexSort<float>>();
+    auto dataset = knowhere::GenDataset(N, 1, vec.data());
+    sort_index->BuildWithDataset(dataset);
     {
         auto res = sort_index->Range(0, OpType::LessThan);
         double count = res->count();
