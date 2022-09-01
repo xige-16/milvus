@@ -3427,3 +3427,57 @@ class  TestsearchString(TestcaseBase):
                                          "limit": default_limit,
                                          "_async": _async}
                             )
+
+
+class Testdiskanntest(TestcaseBase):
+    @pytest.fixture(scope="function", params=[8, 128])
+    def dim(self, request):
+        yield request.param
+
+    @pytest.fixture(scope="function", params=[True])
+    def auto_id(self, request):
+        yield request.param
+
+    @pytest.fixture(scope="function", params=[True])
+    def _async(self, request):
+        yield request.param
+
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_search_with_delete_data(self, dim, auto_id, _async):
+        """
+        target: test delete after creating index
+        method: 1.create collection , insert data,
+                2.create index
+                3.search with invalid params,
+        expected: assert index and deleted id not in search result
+        """
+        # 1. initialize with data
+        collection_w, _, _, ids = \
+            self.init_collection_general(prefix, True, auto_id=auto_id, dim=dim, is_index=True)[0:4]
+        # 2. create index
+        default_index = {"index_type": "DISKANN", "metric_type": "L2", "params": {}}
+        collection_w.create_index(ct.default_float_vec_field_name, default_index)
+        collection_w.load()
+        tmp_expr = f'{ct.default_int64_field_name} in {[0]}'
+
+        expr = f'{ct.default_int64_field_name} in {ids[:1500]}'
+
+        # delete half of data
+        del_res = collection_w.delete(expr)[0]
+        assert del_res.delete_count == 1500
+
+        collection_w.delete(tmp_expr)
+        default_search_params = {"metric_type": "L2", "params": {"search_list": "30"}}
+        vectors = [[random.random() for _ in range(dim)] for _ in range(default_nq)]
+        output_fields = [default_int64_field_name, default_float_field_name, default_string_field_name]
+        collection_w.search(vectors[:default_nq], default_search_field,
+                            default_search_params, default_limit,
+                            default_search_exp,
+                            output_fields=output_fields,
+                            _async=_async,
+                            travel_timestamp=0,
+                            check_task=CheckTasks.check_search_results,
+                            check_items={"nq": default_nq,
+                                         "limit": default_limit,
+                                         "_async": _async}
+                            )

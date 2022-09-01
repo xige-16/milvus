@@ -34,10 +34,11 @@ ScalarIndexCreator::ScalarIndexCreator(DataType dtype, const char* type_params, 
         config_[param.key()] = param.value();
     }
 
-    milvus::Index::BuildIndexInfo index_info;
+    milvus::Index::CreateIndexInfo index_info;
     index_info.field_type = dtype_;
     index_info.index_type = index_type();
-    index_ = Index::IndexFactory::GetInstance().CreateIndex(index_info);
+    index_info.index_mode = IndexMode::MODE_CPU;
+    index_ = Index::IndexFactory::GetInstance().CreateIndex(index_info, nullptr);
 }
 
 void

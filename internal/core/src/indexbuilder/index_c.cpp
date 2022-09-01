@@ -158,6 +158,23 @@ LoadIndexFromBinarySet(CIndex index, CBinarySet c_binary_set) {
     return status;
 }
 
+CStatus
+CleanLocalData(CIndex index) {
+    auto status = CStatus();
+    try {
+        AssertInfo(index, "failed to build float vector index, passed index was null");
+        auto real_index = reinterpret_cast<milvus::indexbuilder::IndexCreatorBase*>(index);
+        auto cIndex = dynamic_cast<milvus::indexbuilder::VecIndexCreator*>(real_index);
+        cIndex->CleanLocalData();
+        status.error_code = Success;
+        status.error_msg = "";
+    } catch (std::exception& e) {
+        status.error_code = UnexpectedError;
+        status.error_msg = strdup(e.what());
+    }
+    return status;
+}
+
 // CStatus
 // QueryOnFloatVecIndex(CIndex index, int64_t float_value_num, const float* vectors, CIndexQueryResult* res) {
 //    auto status = CStatus();

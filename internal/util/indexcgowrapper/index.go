@@ -31,6 +31,7 @@ type CodecIndex interface {
 	SerializeDiskIndex() ([]*Blob, error)
 	Load([]*Blob) error
 	Delete() error
+	CleanLocalData() error
 }
 
 var (
@@ -293,4 +294,9 @@ func (index *CgoIndex) Delete() error {
 	status := C.DeleteIndex(index.indexPtr)
 	index.close = true
 	return HandleCStatus(&status, "failed to delete index")
+}
+
+func (index *CgoIndex) CleanLocalData() error {
+	status := C.CleanLocalData(index.indexPtr)
+	return HandleCStatus(&status, "failed to clean cached data on disk")
 }

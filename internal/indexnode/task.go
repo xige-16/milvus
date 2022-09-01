@@ -362,6 +362,11 @@ func (it *indexBuildTask) BuildDiskAnnIndex(ctx context.Context) error {
 
 		err = it.index.Build(dataset)
 		if err != nil {
+			if it.index.CleanLocalData() != nil {
+				logutil.Logger(ctx).Error("failed to clean cached data on disk after build index failed",
+					zap.Int64("buildID", it.BuildID),
+					zap.Int64("index version", it.req.GetIndexVersion()))
+			}
 			logutil.Logger(ctx).Error("failed to build index", zap.Error(err))
 			return err
 		}

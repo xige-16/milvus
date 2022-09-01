@@ -19,6 +19,7 @@
 #include <boost/filesystem.hpp>
 #include "common/Consts.h"
 #include "config/ConfigChunkManager.h"
+#include "storage/DiskANNFileManagerImpl.h"
 
 namespace milvus::storage {
 
@@ -350,6 +351,12 @@ std::string
 GetLocalRawDataPathPrefixWithBuildID(int64_t segment_id) {
     return milvus::config::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(RAWDATA_ROOT_PATH) + "/" +
            std::to_string(segment_id);
+}
+
+FileManagerImplPtr
+CreateFileManager(IndexType index_type, const FieldDataMeta& field_meta, const IndexMeta& index_meta) {
+    // TODO :: switch case index type to create file manager
+    return std::make_shared<DiskANNFileManagerImpl>(field_meta, index_meta);
 }
 
 }  // namespace milvus::storage

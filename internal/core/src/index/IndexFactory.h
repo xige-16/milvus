@@ -29,7 +29,8 @@
 #include "storage/LocalChunkManager.h"
 #include "storage/MinioChunkManager.h"
 #include "storage/Types.h"
-#include "knowhere/common/FileManager.h"
+//#include "knowhere/common/FileManager.h"
+#include "storage/FileManager.h"
 
 namespace milvus::Index {
 
@@ -50,13 +51,13 @@ class IndexFactory {
     }
 
     IndexBasePtr
-    CreateIndex(const BuildIndexInfo& build_index_info);
+    CreateIndex(const CreateIndexInfo& create_index_info, storage::FileManagerImplPtr file_manager);
 
     IndexBasePtr
-    CreateVectorIndex(const BuildIndexInfo& build_index_info);
+    CreateVectorIndex(const CreateIndexInfo& create_index_info, storage::FileManagerImplPtr file_manager);
 
     IndexBasePtr
-    CreateScalarIndex(const BuildIndexInfo& build_index_info);
+    CreateScalarIndex(const CreateIndexInfo& create_index_info);
 
     //    IndexBasePtr
     //    CreateIndex(DataType dtype, const IndexType& index_type, const IndexMode& index_mode = IndexMode::MODE_CPU);

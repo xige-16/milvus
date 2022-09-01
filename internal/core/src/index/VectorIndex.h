@@ -36,6 +36,7 @@ class VectorIndex : public IndexBase {
         : index_type_(index_type), index_mode_(index_mode), metric_type_(metric_type) {
     }
 
+ public:
     virtual std::unique_ptr<SearchResult>
     Query(const DatasetPtr dataset, const SearchInfo& search_info, const BitsetView& bitset) = 0;
 
@@ -62,6 +63,10 @@ class VectorIndex : public IndexBase {
     void
     SetDim(int64_t dim) {
         dim_ = dim;
+    }
+
+    void
+    CleanLocalData() {
     }
 
  private:

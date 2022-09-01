@@ -40,25 +40,11 @@ struct LoadIndexInfo {
     Index::IndexBasePtr index;
 };
 
-struct BuildIndexInfo {
-    int64_t collection_id;
-    int64_t partition_id;
-    int64_t segment_id;
-    int64_t field_id;
-    DataType field_type;
-    int64_t index_version;
-    int64_t index_id;
-    int64_t index_build_id;
-    std::string index_type;
-    std::string metric_type;
-    IndexMode index_mode;
-    std::map<std::string, std::string> index_params;
-};
-
 struct CreateIndexInfo {
-  std::string index_type;
-  IndexMode index_mode;
-  std::string metric_type;
+    DataType field_type;
+    IndexMode index_mode;
+    IndexType index_type;
+    MetricType metric_type;
 };
 
 }  // namespace milvus::Index

@@ -15,7 +15,7 @@
 #include "indexbuilder/VecIndexCreator.h"
 #include "index/Utils.h"
 #include "index/IndexFactory.h"
-#include "knowhere/index/VecIndex.h"
+#include "storage/DiskANNFileManagerImpl.h"
 
 namespace milvus::indexbuilder {
 
@@ -36,7 +36,20 @@ VecIndexCreator::VecIndexCreator(DataType data_type,
         config_[param.key()] = param.value();
     }
 
-    index_ = Index::IndexFactory::GetInstance().CreateIndex(get_build_index_info());
+    Index::CreateIndexInfo index_info;
+    index_info.field_type = data_type_;
+    index_info.index_mode = Index::GetIndexModeFromConfig(config_);
+    index_info.index_type = Index::GetIndexTypeFromConfig(config_);
+    index_info.metric_type = Index::GetMetricTypeFromConfig(config_);
+
+    std::shared_ptr<storage::FileManagerImpl> file_manager = nullptr;
+    if (Index::is_in_disk_list(index_info.index_type)) {
+        // For now, only support diskann index
+        file_manager = std::make_shared<storage::DiskANNFileManagerImpl>(Index::GetFieldDataMetaFromConfig(config_),
+                                                                         Index::GetIndexMetaFromConfig(config_));
+    }
+
+    index_ = Index::IndexFactory::GetInstance().CreateIndex(index_info, file_manager);
     AssertInfo(index_ != nullptr, "[VecIndexCreator]Index is null after create index");
 }
 
@@ -66,55 +79,10 @@ VecIndexCreator::Query(const milvus::DatasetPtr& dataset, const SearchInfo& sear
     return vector_index->Query(dataset, search_info, bitset);
 }
 
-Index::BuildIndexInfo
-VecIndexCreator::get_build_index_info() const {
-    Index::BuildIndexInfo index_info;
-    // set collection id
-    auto collection_id = Index::GetValueFromConfig<std::string>(config_, Index::COLLECTION_ID);
-    if (collection_id.has_value()) {
-        index_info.collection_id = std::stol(collection_id.value());
-    }
-    // set partition id
-    auto partition_id = Index::GetValueFromConfig<std::string>(config_, Index::PARTITION_ID);
-    if (partition_id.has_value()) {
-        index_info.partition_id = std::stol(partition_id.value());
-    }
-    // set segment id
-    auto segment_id = Index::GetValueFromConfig<std::string>(config_, Index::SEGMENT_ID);
-    if (segment_id.has_value()) {
-        index_info.segment_id = std::stol(segment_id.value());
-    }
-    // set field id
-    auto field_id = Index::GetValueFromConfig<std::string>(config_, Index::FIELD_ID);
-    if (field_id.has_value()) {
-        index_info.field_id = std::stol(field_id.value());
-    }
-    // set index version
-    auto index_version = Index::GetValueFromConfig<std::string>(config_, Index::INDEX_VERSION);
-    if (index_version.has_value()) {
-        index_info.index_version = std::stol(index_version.value());
-    }
-    // set index id
-    auto index_id = Index::GetValueFromConfig<std::string>(config_, Index::INDEX_ID);
-    if (index_id.has_value()) {
-        index_info.index_id = std::stol(index_id.value());
-    }
-    // set index build id
-    auto index_build_id = Index::GetValueFromConfig<std::string>(config_, Index::INDEX_BUILD_ID);
-    if (index_build_id.has_value()) {
-        index_info.index_build_id = std::stol(index_build_id.value());
-    }
-
-    index_info.field_type = data_type_;
-
-    // set index type
-    index_info.index_type = Index::GetIndexTypeFromConfig(config_);
-    // set metric type
-    index_info.metric_type = Index::GetMetricTypeFromConfig(config_);
-    // set index mode
-    index_info.index_mode = Index::GetIndexModeFromConfig(config_);
-
-    return index_info;
+void
+VecIndexCreator::CleanLocalData() {
+    auto vector_index = dynamic_cast<Index::VectorIndex*>(index_.get());
+    vector_index->CleanLocalData();
 }
 
 }  // namespace milvus::indexbuilder

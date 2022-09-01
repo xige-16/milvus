@@ -100,16 +100,6 @@ CheckKeyInConfig(const Config& cfg, const std::string& key) {
     return cfg.contains(key);
 }
 
-IndexMode
-GetIndexMode(const Config& config) {
-    static std::map<std::string, knowhere::IndexMode> mode_map = {
-        {"CPU", knowhere::IndexMode::MODE_CPU},
-        {"GPU", knowhere::IndexMode::MODE_GPU},
-    };
-    auto mode = GetValueFromConfig<std::string>(config, INDEX_MODE);
-    return mode.has_value() ? mode_map[mode.value()] : knowhere::IndexMode::MODE_CPU;
-}
-
 void
 ParseFromString(google::protobuf::Message& params, const std::string& str) {
     auto ok = google::protobuf::TextFormat::ParseFromString(str, &params);
@@ -139,27 +129,74 @@ GetIndexTypeFromConfig(const Config& config) {
 
 IndexMode
 GetIndexModeFromConfig(const Config& config) {
-    static std::map<std::string, knowhere::IndexMode> mode_map = {
-        {"CPU", knowhere::IndexMode::MODE_CPU},
-        {"GPU", knowhere::IndexMode::MODE_GPU},
-    };
     auto mode = GetValueFromConfig<std::string>(config, INDEX_MODE);
-    return mode.has_value() ? mode_map[mode.value()] : knowhere::IndexMode::MODE_CPU;
+    return mode.has_value() ? GetIndexMode(mode.value()) : knowhere::IndexMode::MODE_CPU;
+}
+
+IndexMode
+GetIndexMode(const std::string index_mode) {
+    if (index_mode.compare("CPU") != 0) {
+        return IndexMode::MODE_CPU;
+    }
+
+    if (index_mode.compare("GPU") != 0) {
+        return IndexMode::MODE_GPU;
+    }
+
+    PanicInfo("unsupported index mode");
+}
+
+// TODO:: ugly
+storage::FieldDataMeta
+GetFieldDataMetaFromConfig(const Config& config) {
+    storage::FieldDataMeta field_data_meta;
+    // set collection id
+    auto collection_id = Index::GetValueFromConfig<std::string>(config, Index::COLLECTION_ID);
+    AssertInfo(collection_id.has_value(), "collection id not exist in index config");
+    field_data_meta.collection_id = std::stol(collection_id.value());
+
+    // set partition id
+    auto partition_id = Index::GetValueFromConfig<std::string>(config, Index::PARTITION_ID);
+    AssertInfo(partition_id.has_value(), "partition id not exist in index config");
+    field_data_meta.partition_id = std::stol(partition_id.value());
+
+    // set segment id
+    auto segment_id = Index::GetValueFromConfig<std::string>(config, Index::SEGMENT_ID);
+    AssertInfo(segment_id.has_value(), "segment id not exist in index config");
+    field_data_meta.segment_id = std::stol(segment_id.value());
+
+    // set field id
+    auto field_id = Index::GetValueFromConfig<std::string>(config, Index::FIELD_ID);
+    AssertInfo(field_id.has_value(), "field id not exist in index config");
+    field_data_meta.field_id = std::stol(field_id.value());
+
+    return std::move(field_data_meta);
 }
 
 storage::IndexMeta
-GetIndexMetaFromBuildIndexInfo(const BuildIndexInfo& build_index_info) {
-    storage::IndexMeta index_meta{build_index_info.segment_id, build_index_info.field_id,
-                                  build_index_info.index_build_id, build_index_info.index_version};
+GetIndexMetaFromConfig(const Config& config) {
+    storage::IndexMeta index_meta;
+    // set segment id
+    auto segment_id = Index::GetValueFromConfig<std::string>(config, Index::SEGMENT_ID);
+    AssertInfo(segment_id.has_value(), "segment id not exist in index config");
+    index_meta.segment_id = std::stol(segment_id.value());
+
+    // set field id
+    auto field_id = Index::GetValueFromConfig<std::string>(config, Index::FIELD_ID);
+    AssertInfo(field_id.has_value(), "field id not exist in index config");
+    index_meta.field_id = std::stol(field_id.value());
+
+    // set index version
+    auto index_version = Index::GetValueFromConfig<std::string>(config, Index::INDEX_VERSION);
+    AssertInfo(index_version.has_value(), "index_version id not exist in index config");
+    index_meta.index_version = std::stol(index_version.value());
+
+    // set index id
+    auto build_id = Index::GetValueFromConfig<std::string>(config, Index::INDEX_BUILD_ID);
+    AssertInfo(build_id.has_value(), "build id not exist in index config");
+    index_meta.build_id = std::stol(build_id.value());
 
     return std::move(index_meta);
-}
-
-storage::FieldDataMeta
-GetFieldMetaFromBuildIndexInfo(const BuildIndexInfo& build_index_info) {
-    storage::FieldDataMeta meta{build_index_info.collection_id, build_index_info.partition_id,
-                                build_index_info.segment_id, build_index_info.field_id};
-    return std::move(meta);
 }
 
 }  // namespace milvus::Index

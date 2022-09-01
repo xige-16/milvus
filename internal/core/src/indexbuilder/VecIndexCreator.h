@@ -45,9 +45,9 @@ class VecIndexCreator : public IndexCreatorBase {
     std::unique_ptr<SearchResult>
     Query(const milvus::DatasetPtr& dataset, const SearchInfo& search_info, const BitsetView& bitset);
 
- private:
-    Index::BuildIndexInfo
-    get_build_index_info() const;
+ public:
+    void
+    CleanLocalData();
 
  private:
     milvus::Index::IndexBasePtr index_ = nullptr;

@@ -57,9 +57,6 @@ is_unsupported(const IndexType& index_type, const MetricType& metric_type);
 bool
 CheckKeyInConfig(const Config& cfg, const std::string& key);
 
-IndexMode
-GetIndexMode(const Config& config);
-
 void
 ParseFromString(google::protobuf::Message& params, const std::string& str);
 
@@ -105,10 +102,13 @@ GetIndexTypeFromConfig(const Config& config);
 IndexMode
 GetIndexModeFromConfig(const Config& config);
 
-storage::IndexMeta
-GetIndexMetaFromBuildIndexInfo(const BuildIndexInfo& build_index_info);
+IndexMode
+GetIndexMode(const std::string index_mode);
 
 storage::FieldDataMeta
-GetFieldMetaFromBuildIndexInfo(const BuildIndexInfo& build_index_info);
+GetFieldDataMetaFromConfig(const Config& config);
+
+storage::IndexMeta
+GetIndexMetaFromConfig(const Config& config);
 
 }  // namespace milvus::Index

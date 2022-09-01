@@ -50,6 +50,9 @@ AppendIndex(CLoadIndexInfo c_load_index_info, CBinarySet c_binary_set);
 CStatus
 AppendIndexFilePath(CLoadIndexInfo c_load_index_info, const char* file_path);
 
+CStatus
+CleanLocalData(CLoadIndexInfo c_load_index_info);
+
 #ifdef __cplusplus
 }
 #endif

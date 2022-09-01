@@ -93,13 +93,7 @@ LocalChunkManager::Read(const std::string& filepath, uint64_t offset, void* buf,
 }
 
 void
-LocalChunkManager::Write(const std::string& filepath, void* buf, uint64_t size) {
-    boost::filesystem::path absPath(filepath);
-    // if filepath not exists, will create this file automatically
-    // ensure upper directory exist firstly
-    boost::filesystem::create_directories(absPath.parent_path());
-    auto absPathStr = absPath.string();
-
+LocalChunkManager::Write(const std::string& absPathStr, void* buf, uint64_t size) {
     std::ofstream outfile;
     outfile.open(absPathStr, std::ios_base::binary);
     if (outfile.fail()) {
@@ -115,12 +109,7 @@ LocalChunkManager::Write(const std::string& filepath, void* buf, uint64_t size) 
 }
 
 void
-LocalChunkManager::Write(const std::string& filepath, uint64_t offset, void* buf, uint64_t size) {
-    boost::filesystem::path absPath(filepath);
-    // if filepath not exists, will create this file automatically
-    // ensure upper directory exist firstly
-    boost::filesystem::create_directories(absPath.parent_path());
-    auto absPathStr = absPath.string();
+LocalChunkManager::Write(const std::string& absPathStr, uint64_t offset, void* buf, uint64_t size) {
     std::ofstream outfile;
     outfile.open(absPathStr, std::ios_base::in | std::ios_base::out | std::ios_base::binary);
     if (outfile.fail()) {
@@ -149,7 +138,7 @@ LocalChunkManager::CreateFile(const std::string& filepath) {
     // ensure upper directory exist firstly
     boost::filesystem::create_directories(absPath.parent_path());
     auto absPathStr = absPath.string();
-    std::fstream file;
+    std::ofstream file;
     file.open(absPathStr, std::ios_base::out);
     if (!file.is_open()) {
         std::stringstream err_msg;

@@ -30,7 +30,7 @@ class VectorDiskAnnIndex : public VectorIndex {
     explicit VectorDiskAnnIndex(const IndexType& index_type,
                                 const MetricType& metric_type,
                                 const IndexMode& index_mode,
-                                std::shared_ptr<knowhere::DiskANNFileManagerImpl> file_manager);
+                                storage::FileManagerImplPtr file_manager);
     BinarySet
     Serialize(const Config& config) override {
         auto remote_paths_to_size = file_manager_->GetRemotePaths();
@@ -56,6 +56,9 @@ class VectorDiskAnnIndex : public VectorIndex {
     std::unique_ptr<SearchResult>
     Query(const DatasetPtr dataset, const SearchInfo& search_info, const BitsetView& bitset) override;
 
+    void
+    CleanLocalData();
+
  private:
     knowhere::DiskANNBuildConfig
     parse_build_config(Config& config);
@@ -68,7 +71,7 @@ class VectorDiskAnnIndex : public VectorIndex {
 
  private:
     std::unique_ptr<knowhere::IndexDiskANN<T>> index_;
-    std::shared_ptr<knowhere::DiskANNFileManagerImpl> file_manager_;
+    std::shared_ptr<storage::DiskANNFileManagerImpl> file_manager_;
 };
 
 }  // namespace milvus::Index

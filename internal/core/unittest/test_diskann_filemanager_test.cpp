@@ -168,7 +168,7 @@
 //    diskAnnFileManager->AddFile("./" + std::to_string(buildId) + "/index");
 //
 //    // check result
-//    auto remotePrefix = diskAnnFileManager->GetRemoteObjectPrefix(indexMeta);
+//    auto remotePrefix = diskAnnFileManager->GetRemoteIndexObjectPrefix(indexMeta);
 //    auto remoteIndexFiles = remoteChunkManager_->ListWithPrefix(remotePrefix);
 //    EXPECT_EQ(remoteIndexFiles.size(), indexSize / sliceSize == 0 ? indexSize / sliceSize : indexSize / sliceSize +
 //    1);

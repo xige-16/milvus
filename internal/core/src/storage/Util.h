@@ -19,6 +19,7 @@
 #include <memory>
 
 #include "storage/PayloadStream.h"
+#include "storage/FileManager.h"
 
 namespace milvus::storage {
 
@@ -66,4 +67,8 @@ GenRawDataPathPrefix(int64_t segment_id, int64_t field_id);
 
 std::string
 GetLocalRawDataPathPrefixWithBuildID(int64_t segment_id);
+
+FileManagerImplPtr
+CreateFileManager(IndexType index_type, const FieldDataMeta& field_meta, const IndexMeta& index_meta);
+
 }  // namespace milvus::storage

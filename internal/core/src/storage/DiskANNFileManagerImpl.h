@@ -23,14 +23,13 @@
 #include <vector>
 
 #include "storage/IndexData.h"
-#include "knowhere/common/FileManager.h"
+#include "storage/FileManager.h"
 
-namespace knowhere {
+namespace milvus::storage {
 
-class DiskANNFileManagerImpl : public knowhere::FileManager {
+class DiskANNFileManagerImpl : public FileManagerImpl {
  public:
-    explicit DiskANNFileManagerImpl(const milvus::storage::FieldDataMeta& field_mata,
-                                    const milvus::storage::IndexMeta& index_meta);
+    explicit DiskANNFileManagerImpl(const FieldDataMeta& field_mata, const IndexMeta& index_meta);
 
     virtual ~DiskANNFileManagerImpl();
 
@@ -53,15 +52,13 @@ class DiskANNFileManagerImpl : public knowhere::FileManager {
     }
 
     std::string
-    GetRemoteObjectPrefix();
+    GetRemoteIndexObjectPrefix();
 
     std::string
-    GetLocalObjectPrefix();
+    GetLocalIndexObjectPrefix();
 
-    void
-    SetLocalPaths(std::vector<std::string> paths) {
-        local_paths_ = paths;
-    }
+    std::string
+    GetLocalRawDataObjectPrefix();
 
     std::map<std::string, int64_t>
     GetRemotePaths() const {
@@ -82,10 +79,10 @@ class DiskANNFileManagerImpl : public knowhere::FileManager {
 
  private:
     // collection meta
-    milvus::storage::FieldDataMeta field_meta_;
+    FieldDataMeta field_meta_;
 
     // index meta
-    milvus::storage::IndexMeta index_meta_;
+    IndexMeta index_meta_;
 
     // local file path (abs path)
     std::vector<std::string> local_paths_;
@@ -94,4 +91,4 @@ class DiskANNFileManagerImpl : public knowhere::FileManager {
     std::map<std::string, int64_t> remote_paths_to_size_;
 };
 
-}  // namespace knowhere
+}  // namespace milvus::storage

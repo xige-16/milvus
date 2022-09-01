@@ -32,19 +32,19 @@
 #define FILEMANAGER_TRY try {
 #define FILEMANAGER_CATCH                                                                   \
     }                                                                                       \
-    catch (milvus::storage::LocalChunkManagerException & e) {                               \
+    catch (LocalChunkManagerException & e) {                                                \
         LOG_SEGCORE_ERROR_C << "LocalChunkManagerException:" << e.what();                   \
         return false;                                                                       \
     }                                                                                       \
-    catch (milvus::storage::MinioException & e) {                                           \
+    catch (MinioException & e) {                                                            \
         LOG_SEGCORE_ERROR_C << "milvus::storage::MinioException:" << e.what();              \
         return false;                                                                       \
     }                                                                                       \
-    catch (milvus::storage::DiskANNFileManagerException & e) {                              \
+    catch (DiskANNFileManagerException & e) {                                               \
         LOG_SEGCORE_ERROR_C << "milvus::storage::DiskANNFileManagerException:" << e.what(); \
         return false;                                                                       \
     }                                                                                       \
-    catch (milvus::storage::ArrowException & e) {                                           \
+    catch (ArrowException & e) {                                                            \
         LOG_SEGCORE_ERROR_C << "milvus::storage::ArrowException:" << e.what();              \
         return false;                                                                       \
     }                                                                                       \
@@ -56,16 +56,15 @@
 using ReadLock = std::shared_lock<std::shared_mutex>;
 using WriteLock = std::lock_guard<std::shared_mutex>;
 
-namespace knowhere {
+namespace milvus::storage {
 
-DiskANNFileManagerImpl::DiskANNFileManagerImpl(const milvus::storage::FieldDataMeta& field_mata,
-                                               const milvus::storage::IndexMeta& index_meta)
+DiskANNFileManagerImpl::DiskANNFileManagerImpl(const FieldDataMeta& field_mata, const IndexMeta& index_meta)
     : field_meta_(field_mata), index_meta_(index_meta) {
 }
 
 DiskANNFileManagerImpl::~DiskANNFileManagerImpl() {
-    auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-    local_chunk_manager.RemoveDir(milvus::storage::GetLocalIndexPathPrefixWithBuildID(index_meta_.build_id));
+    auto& local_chunk_manager = LocalChunkManager::GetInstance();
+    local_chunk_manager.RemoveDir(GetLocalIndexPathPrefixWithBuildID(index_meta_.build_id));
 }
 
 bool
@@ -75,8 +74,8 @@ DiskANNFileManagerImpl::LoadFile(const std::string& file) noexcept {
 
 bool
 DiskANNFileManagerImpl::AddFile(const std::string& file) noexcept {
-    auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-    auto& remote_chunk_manager = milvus::storage::MinioChunkManager::GetInstance();
+    auto& local_chunk_manager = LocalChunkManager::GetInstance();
+    auto& remote_chunk_manager = MinioChunkManager::GetInstance();
     FILEMANAGER_TRY
     if (!local_chunk_manager.Exist(file)) {
         LOG_SEGCORE_ERROR_C << "local file: " << file << " does not exist ";
@@ -93,12 +92,12 @@ DiskANNFileManagerImpl::AddFile(const std::string& file) noexcept {
 
     // Split local data to multi part with specified size
     int slice_num = 0;
-    auto remotePrefix = GetRemoteObjectPrefix();
+    auto remotePrefix = GetRemoteIndexObjectPrefix();
     for (int offset = 0; offset < fileSize; slice_num++) {
         auto batch_size = std::min(milvus::config::KnowhereGetIndexSliceSize() << 20, int64_t(fileSize) - offset);
 
-        auto fieldData = std::make_shared<milvus::storage::FieldData>(buf.get() + offset, batch_size);
-        auto indexData = std::make_shared<milvus::storage::IndexData>(fieldData);
+        auto fieldData = std::make_shared<FieldData>(buf.get() + offset, batch_size);
+        auto indexData = std::make_shared<IndexData>(fieldData);
         indexData->set_index_meta(index_meta_);
         indexData->SetFieldDataMeta(field_meta_);
         auto serialized_index_data = indexData->serialize_to_remote_file();
@@ -121,8 +120,8 @@ DiskANNFileManagerImpl::AddFile(const std::string& file) noexcept {
 
 void
 DiskANNFileManagerImpl::CacheIndexToDisk(std::vector<std::string> remote_files) {
-    auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-    auto& remote_chunk_manager = milvus::storage::MinioChunkManager::GetInstance();
+    auto& local_chunk_manager = LocalChunkManager::GetInstance();
+    auto& remote_chunk_manager = MinioChunkManager::GetInstance();
 
     std::map<std::string, std::vector<int>> index_slices;
     for (auto& file_path : remote_files) {
@@ -136,7 +135,7 @@ DiskANNFileManagerImpl::CacheIndexToDisk(std::vector<std::string> remote_files) 
 
     for (auto& slices : index_slices) {
         auto prefix = slices.first;
-        auto local_index_file_name = GetLocalObjectPrefix() + prefix.substr(prefix.find_last_of("/") + 1);
+        auto local_index_file_name = GetLocalIndexObjectPrefix() + prefix.substr(prefix.find_last_of("/") + 1);
         local_chunk_manager.CreateFile(local_index_file_name);
         int64_t offset = 0;
         for (auto iter = slices.second.begin(); iter != slices.second.end(); iter++) {
@@ -145,7 +144,7 @@ DiskANNFileManagerImpl::CacheIndexToDisk(std::vector<std::string> remote_files) 
             auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[fileSize]);
             remote_chunk_manager.Read(origin_file, buf.get(), fileSize);
 
-            auto decoded_index_data = milvus::storage::DeserializeFileData(buf.get(), fileSize);
+            auto decoded_index_data = DeserializeFileData(buf.get(), fileSize);
             auto index_payload = decoded_index_data->GetPayload();
             auto index_size = index_payload->rows * sizeof(uint8_t);
 
@@ -164,23 +163,28 @@ DiskANNFileManagerImpl::GetFileName(const std::string& localfile) {
 }
 
 std::string
-DiskANNFileManagerImpl::GetRemoteObjectPrefix() {
+DiskANNFileManagerImpl::GetRemoteIndexObjectPrefix() {
     return "files/" + std::string(INDEX_ROOT_PATH) + "/" + std::to_string(index_meta_.build_id) + "/" +
            std::to_string(index_meta_.index_version) + "/" + std::to_string(field_meta_.partition_id) + "/" +
            std::to_string(field_meta_.segment_id);
 }
 
 std::string
-DiskANNFileManagerImpl::GetLocalObjectPrefix() {
-    return milvus::storage::GenLocalIndexPathPrefix(index_meta_.build_id, index_meta_.index_version);
+DiskANNFileManagerImpl::GetLocalIndexObjectPrefix() {
+    return GenLocalIndexPathPrefix(index_meta_.build_id, index_meta_.index_version);
+}
+
+std::string
+DiskANNFileManagerImpl::GetLocalRawDataObjectPrefix() {
+    return GenRawDataPathPrefix(field_meta_.segment_id, field_meta_.field_id);
 }
 
 bool
 DiskANNFileManagerImpl::RemoveFile(const std::string& file) noexcept {
     // remove local file
     bool localExist = false;
-    auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-    auto& remote_chunk_manager = milvus::storage::MinioChunkManager::GetInstance();
+    auto& local_chunk_manager = LocalChunkManager::GetInstance();
+    auto& remote_chunk_manager = MinioChunkManager::GetInstance();
     FILEMANAGER_TRY
     localExist = local_chunk_manager.Exist(file);
     FILEMANAGER_CATCH
@@ -211,11 +215,11 @@ DiskANNFileManagerImpl::RemoveFile(const std::string& file) noexcept {
 std::optional<bool>
 DiskANNFileManagerImpl::IsExisted(const std::string& file) noexcept {
     bool isExist = false;
-    auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-    auto& remote_chunk_manager = milvus::storage::MinioChunkManager::GetInstance();
+    auto& local_chunk_manager = LocalChunkManager::GetInstance();
+    auto& remote_chunk_manager = MinioChunkManager::GetInstance();
     try {
         isExist = local_chunk_manager.Exist(file);
-    } catch (milvus::storage::LocalChunkManagerException& e) {
+    } catch (LocalChunkManagerException& e) {
         // LOG_SEGCORE_DEBUG_ << "LocalChunkManagerException:"
         //                   << e.what();
         return std::nullopt;
@@ -226,4 +230,4 @@ DiskANNFileManagerImpl::IsExisted(const std::string& file) noexcept {
     return isExist;
 }
 
-}  // namespace knowhere
+}  // namespace milvus::storage

@@ -49,43 +49,8 @@ SerializeIndexToBinarySet(CIndex index, CBinarySet* c_binary_set);
 CStatus
 LoadIndexFromBinarySet(CIndex index, CBinarySet c_binary_set);
 
-// CStatus
-// QueryOnFloatVecIndex(CIndex index, int64_t float_value_num, const float* vectors, CIndexQueryResult* res);
-//
-// CStatus
-// QueryOnFloatVecIndexWithParam(CIndex index,
-//                              int64_t float_value_num,
-//                              const float* vectors,
-//                              const char* serialized_search_params,
-//                              CIndexQueryResult* res);
-//
-// CStatus
-// QueryOnBinaryVecIndex(CIndex index, int64_t data_size, const uint8_t* vectors, CIndexQueryResult* res);
-//
-// CStatus
-// QueryOnBinaryVecIndexWithParam(CIndex index,
-//                               int64_t data_size,
-//                               const uint8_t* vectors,
-//                               const char* serialized_search_params,
-//                               CIndexQueryResult* res);
-//
-// CStatus
-// CreateQueryResult(CIndexQueryResult* res);
-//
-// int64_t
-// NqOfQueryResult(CIndexQueryResult res);
-//
-// int64_t
-// TopkOfQueryResult(CIndexQueryResult res);
-//
-// void
-// GetIdsOfQueryResult(CIndexQueryResult res, int64_t* ids);
-//
-// void
-// GetDistancesOfQueryResult(CIndexQueryResult res, float* distances);
-//
-// CStatus
-// DeleteIndexQueryResult(CIndexQueryResult res);
+CStatus
+CleanLocalData(CIndex index);
 
 #ifdef __cplusplus
 };

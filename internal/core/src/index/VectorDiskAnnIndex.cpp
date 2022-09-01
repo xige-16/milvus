@@ -29,12 +29,15 @@ template <typename T>
 VectorDiskAnnIndex<T>::VectorDiskAnnIndex(const IndexType& index_type,
                                           const MetricType& metric_type,
                                           const IndexMode& index_mode,
-                                          std::shared_ptr<knowhere::DiskANNFileManagerImpl> file_manager)
-    : VectorIndex(index_type, index_mode, metric_type), file_manager_(file_manager) {
+                                          storage::FileManagerImplPtr file_manager)
+    : VectorIndex(index_type, index_mode, metric_type) {
+    file_manager_ = std::dynamic_pointer_cast<storage::DiskANNFileManagerImpl>(file_manager);
     auto& local_chunk_manager = storage::LocalChunkManager::GetInstance();
-    local_chunk_manager.CreateDir(file_manager_->GetLocalObjectPrefix());
-    index_ =
-        std::make_unique<knowhere::IndexDiskANN<T>>(file_manager->GetLocalObjectPrefix(), metric_type, file_manager);
+    auto local_index_path_prefix = file_manager_->GetLocalIndexObjectPrefix();
+    AssertInfo(!local_chunk_manager.Exist(local_index_path_prefix),
+               "local index path " + local_index_path_prefix + " has been exist");
+    local_chunk_manager.CreateDir(local_index_path_prefix);
+    index_ = std::make_unique<knowhere::IndexDiskANN<T>>(local_index_path_prefix, metric_type, file_manager);
 }
 
 template <typename T>
@@ -53,6 +56,7 @@ VectorDiskAnnIndex<T>::Load(const BinarySet& binary_set /* not used */, const Co
 template <typename T>
 void
 VectorDiskAnnIndex<T>::BuildWithDataset(const DatasetPtr& dataset, const Config& config) {
+    auto& local_chunk_manager = storage::LocalChunkManager::GetInstance();
     auto build_config = parse_build_config(const_cast<Config&>(config));
     auto segment_id = GetValueFromConfig<std::string>(config, Index::SEGMENT_ID);
     AssertInfo(segment_id.has_value(), "segment id not exist");
@@ -61,24 +65,22 @@ VectorDiskAnnIndex<T>::BuildWithDataset(const DatasetPtr& dataset, const Config&
     auto local_data_path =
         storage::GenRawDataPathPrefix(std::stol(segment_id.value()), std::stol(field_id.value())) + "raw_data";
     build_config.data_path = local_data_path;
+    if (!local_chunk_manager.Exist(local_data_path)) {
+        local_chunk_manager.CreateFile(local_data_path);
+    }
 
-    auto& local_chunk_manager = storage::LocalChunkManager::GetInstance();
+    int64_t offset = 0;
     auto num = uint32_t(milvus::GetDatasetRows(dataset));
+    local_chunk_manager.Write(local_data_path, offset, &num, sizeof(num));
+    offset += sizeof(num);
+
     auto dim = uint32_t(milvus::GetDatasetDim(dataset));
+    local_chunk_manager.Write(local_data_path, offset, &dim, sizeof(dim));
+    offset += sizeof(dim);
+
     auto data_size = num * dim * sizeof(float);
     auto raw_data = const_cast<void*>(milvus::GetDatasetTensor(dataset));
-
-    auto total_size = sizeof(num) + sizeof(dim) + data_size;
-    std::vector<uint8_t> disk_raw_data(total_size);
-    int offset = 0;
-    memcpy(disk_raw_data.data() + offset, &num, sizeof(num));
-    offset += sizeof(num);
-    memcpy(disk_raw_data.data() + offset, &dim, sizeof(dim));
-    offset += sizeof(dim);
-    memcpy(disk_raw_data.data() + offset, raw_data, data_size);
-
-    // for now, disk ann only support float vector
-    local_chunk_manager.Write(local_data_path, disk_raw_data.data(), total_size);
+    local_chunk_manager.Write(local_data_path, offset, raw_data, data_size);
 
     knowhere::Config cfg;
     knowhere::DiskANNBuildConfig::Set(cfg, build_config);
@@ -144,6 +146,14 @@ VectorDiskAnnIndex<T>::Query(const DatasetPtr dataset, const SearchInfo& search_
 }
 
 template <typename T>
+void
+VectorDiskAnnIndex<T>::CleanLocalData() {
+    auto& local_chunk_manager = storage::LocalChunkManager::GetInstance();
+    local_chunk_manager.RemoveDir(file_manager_->GetLocalIndexObjectPrefix());
+    local_chunk_manager.RemoveDir(file_manager_->GetLocalRawDataObjectPrefix());
+}
+
+template <typename T>
 knowhere::DiskANNBuildConfig
 VectorDiskAnnIndex<T>::parse_build_config(Config& config) {
     // parse config from string type to valid value
@@ -169,7 +179,7 @@ VectorDiskAnnIndex<T>::parse_build_config(Config& config) {
     // set search dram budget
     auto search_dram_budget_gb = GetValueFromConfig<float>(config, DISK_ANN_SEARCH_DRAM_BUDGET);
     AssertInfo(search_dram_budget_gb.has_value(), "param " + std::string(DISK_ANN_SEARCH_DRAM_BUDGET) + "is empty");
-    build_config.search_dram_budget_gb = search_dram_budget_gb.value();
+    build_config.pq_code_budget_gb = search_dram_budget_gb.value();
 
     // set build dram budget
     auto build_dram_budget_gb = GetValueFromConfig<float>(config, DISK_ANN_BUILD_DRAM_BUDGET);

@@ -25,18 +25,18 @@
 namespace milvus::Index {
 
 IndexBasePtr
-IndexFactory::CreateIndex(const BuildIndexInfo& build_index_info) {
-    if (datatype_is_vector(build_index_info.field_type)) {
-        return CreateVectorIndex(build_index_info);
+IndexFactory::CreateIndex(const CreateIndexInfo& create_index_info, storage::FileManagerImplPtr file_manager) {
+    if (datatype_is_vector(create_index_info.field_type)) {
+        return CreateVectorIndex(create_index_info, file_manager);
     }
 
-    return CreateScalarIndex(build_index_info);
+    return CreateScalarIndex(create_index_info);
 }
 
 IndexBasePtr
-IndexFactory::CreateScalarIndex(const BuildIndexInfo& build_index_info) {
-    auto data_type = build_index_info.field_type;
-    auto index_type = build_index_info.index_type;
+IndexFactory::CreateScalarIndex(const CreateIndexInfo& create_index_info) {
+    auto data_type = create_index_info.field_type;
+    auto index_type = create_index_info.index_type;
 
     switch (data_type) {
         // create scalar index
@@ -66,18 +66,17 @@ IndexFactory::CreateScalarIndex(const BuildIndexInfo& build_index_info) {
 }
 
 IndexBasePtr
-IndexFactory::CreateVectorIndex(const BuildIndexInfo& build_index_info) {
-    auto data_type = build_index_info.field_type;
-    auto index_type = build_index_info.index_type;
-    auto metric_type = build_index_info.metric_type;
-    auto index_mode = build_index_info.index_mode;
+IndexFactory::CreateVectorIndex(const CreateIndexInfo& create_index_info, storage::FileManagerImplPtr file_manager) {
+    auto data_type = create_index_info.field_type;
+    auto index_type = create_index_info.index_type;
+    auto metric_type = create_index_info.metric_type;
+    auto index_mode = create_index_info.index_mode;
 
     // create disk index
     if (is_in_disk_list(index_type)) {
         switch (data_type) {
             case DataType::VECTOR_FLOAT: {
-                auto file_manager = std::make_shared<knowhere::DiskANNFileManagerImpl>(
-                    GetFieldMetaFromBuildIndexInfo(build_index_info), GetIndexMetaFromBuildIndexInfo(build_index_info));
+                ;
                 return std::make_shared<VectorDiskAnnIndex<float>>(index_type, metric_type, index_mode, file_manager);
             }
             default:
