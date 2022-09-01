@@ -19,7 +19,7 @@
 #include <string>
 #include <optional>
 
-namespace knowhere {
+namespace milvus::storage {
 
 // enum FileManagerType {
 //    DiskANNFileManager = 0,

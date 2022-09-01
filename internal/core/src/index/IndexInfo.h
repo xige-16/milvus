@@ -55,4 +55,10 @@ struct BuildIndexInfo {
     std::map<std::string, std::string> index_params;
 };
 
+struct CreateIndexInfo {
+  std::string index_type;
+  IndexMode index_mode;
+  std::string metric_type;
+};
+
 }  // namespace milvus::Index

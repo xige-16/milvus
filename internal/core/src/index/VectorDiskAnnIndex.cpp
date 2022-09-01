@@ -102,8 +102,11 @@ VectorDiskAnnIndex<T>::Query(const DatasetPtr dataset, const SearchInfo& search_
     // set search list
     auto search_list_size = GetValueFromConfig<uint32_t>(search_info.search_params_, DISK_ANN_QUERY_LIST);
     AssertInfo(search_list_size.has_value(), "param " + std::string(DISK_ANN_QUERY_LIST) + "is empty");
-    query_config.search_list_size = std::max(uint32_t(topk + 1), search_list_size.value());
-    query_config.search_list_size = std::min(search_list_size.value(), uint32_t(65535 * 3 - 1));
+    query_config.search_list_size = search_list_size.value();
+
+    // norm search list size to (topk, topk * 10 -1)
+    query_config.search_list_size = std::max(uint32_t(topk + 1), query_config.search_list_size);
+    query_config.search_list_size = std::min(query_config.search_list_size, uint32_t(topk * 10 - 1));
 
     // set beamwidth
     query_config.beamwidth = 16;

@@ -30,7 +30,7 @@ TEST(storage, InsertDataFloat) {
     auto field_data = std::make_shared<storage::FieldData>(payload);
 
     storage::InsertData insert_data(field_data);
-    FieldDataMeta field_data_meta{100, 101, 102, 103};
+    storage::FieldDataMeta field_data_meta{100, 101, 102, 103};
     insert_data.SetFieldDataMeta(field_data_meta);
     insert_data.SetTimestamps(0, 100);
 
@@ -55,7 +55,7 @@ TEST(storage, InsertDataVectorFloat) {
     auto field_data = std::make_shared<storage::FieldData>(payload);
 
     storage::InsertData insert_data(field_data);
-    FieldDataMeta field_data_meta{100, 101, 102, 103};
+    storage::FieldDataMeta field_data_meta{100, 101, 102, 103};
     insert_data.SetFieldDataMeta(field_data_meta);
     insert_data.SetTimestamps(0, 100);
 
@@ -80,7 +80,7 @@ TEST(storage, LocalInsertDataVectorFloat) {
     auto field_data = std::make_shared<storage::FieldData>(payload);
 
     storage::InsertData insert_data(field_data);
-    FieldDataMeta field_data_meta{100, 101, 102, 103};
+    storage::FieldDataMeta field_data_meta{100, 101, 102, 103};
     insert_data.SetFieldDataMeta(field_data_meta);
 
     auto serialized_bytes = insert_data.Serialize(storage::StorageType::LocalDisk);
