@@ -140,6 +140,9 @@ class LocalChunkManager : public ChunkManager {
     static void
     CreateDir(const std::string& dir);
 
+    int64_t
+    GetSizeOfDir(const std::string& dir);
+
  private:
     std::string path_prefix_;
 };

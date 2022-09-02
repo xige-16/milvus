@@ -92,6 +92,15 @@ class PathAlreadyExistException : public LocalChunkManagerException {
     virtual ~PathAlreadyExistException() {
     }
 };
+
+class DirNotExistException : public LocalChunkManagerException {
+public:
+  explicit DirNotExistException(const std::string& msg) : LocalChunkManagerException(msg) {
+  }
+  virtual ~DirNotExistException() {
+  }
+};
+
 class MinioException : public std::runtime_error {
  public:
     explicit MinioException(const std::string& msg) : std::runtime_error(msg) {

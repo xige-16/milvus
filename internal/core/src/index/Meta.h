@@ -83,7 +83,7 @@ constexpr const char* DISK_ANN_PQ_BYTES = "ps_disk_bytes";
 
 // DiskAnn prepare params
 constexpr const char* DISK_ANN_PREPARE_THREAD_NUM = "num_prepare_thread";
-constexpr const char* DISK_ANN_PREPARE_NODES_CACHED = "num_nodes_to_cache";
+constexpr const char* DISK_ANN_PREPARE_CACHED_BUDGET_GB = "search_cache_budget_gb";
 constexpr const char* DISK_ANN_PREPARE_WARM_UP = "warm_up";
 constexpr const char* DISK_ANN_PREPARE_USE_BFS_CACHE = "use_bfs_cache";
 

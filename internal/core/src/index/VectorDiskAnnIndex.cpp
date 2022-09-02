@@ -215,9 +215,9 @@ VectorDiskAnnIndex<T>::parse_prepare_config(Config& config) {
     prepare_config.num_threads = num_threads.value();
 
     // set prepare cached node
-    auto num_nodes_to_cache = GetValueFromConfig<uint32_t>(config, DISK_ANN_PREPARE_NODES_CACHED);
-    AssertInfo(num_nodes_to_cache.has_value(), "param " + std::string(DISK_ANN_PREPARE_NODES_CACHED) + "is empty");
-    prepare_config.num_nodes_to_cache = num_nodes_to_cache.value();
+    auto search_cache_budget_gb = GetValueFromConfig<float>(config, DISK_ANN_PREPARE_CACHED_BUDGET_GB);
+    AssertInfo(search_cache_budget_gb.has_value(), "param " + std::string(DISK_ANN_PREPARE_CACHED_BUDGET_GB) + "is empty");
+    prepare_config.search_cache_budget_gb = search_cache_budget_gb.value();
 
     return prepare_config;
 }
@@ -245,7 +245,7 @@ VectorDiskAnnIndex<T>::parse_config(Config& config) {
     /************************** DiskAnn prepare Params ************************/
     CheckParameter<int>(config, DISK_ANN_PREPARE_THREAD_NUM, stoi_closure, std::optional{8});
     // CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{10000});
-    CheckParameter<int>(config, DISK_ANN_PREPARE_NODES_CACHED, stoi_closure, std::optional{1});
+    CheckParameter<float>(config, DISK_ANN_PREPARE_CACHED_BUDGET_GB, stof_closure, std::optional{0.001});
 
     /************************** DiskAnn query Params ************************/
     // CheckParameter<int>(config, DISK_ANN_QUERY_LIST, stoi_closure, std::nullopt);

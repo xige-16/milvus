@@ -1,47 +1,47 @@
-//// Copyright (C) 2019-2020 Zilliz. All rights reserved.
-////
-//// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance
-//// with the License. You may obtain a copy of the License at
-////
-//// http://www.apache.org/licenses/LICENSE-2.0
-////
-//// Unless required by applicable law or agreed to in writing, software distributed under the License
-//// is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
-//// or implied. See the License for the specific language governing permissions and limitations under the License
+// Copyright (C) 2019-2020 Zilliz. All rights reserved.
 //
-//#include <gtest/gtest.h>
+// Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance
+// with the License. You may obtain a copy of the License at
 //
-//#include <iostream>
-//#include <random>
-//#include <string>
-//#include <vector>
+// http://www.apache.org/licenses/LICENSE-2.0
 //
-//#include "storage/LocalChunkManager.h"
-//
-// using namespace std;
-// using namespace milvus;
-// using namespace milvus::storage;
-//
-// class LocalChunkManagerTest : public testing::Test {
-// public:
-//    LocalChunkManagerTest() {
-//    }
-//    ~LocalChunkManagerTest() {
-//    }
-//
+// Unless required by applicable law or agreed to in writing, software distributed under the License
+// is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+// or implied. See the License for the specific language governing permissions and limitations under the License
+
+#include <gtest/gtest.h>
+
+#include <iostream>
+#include <random>
+#include <string>
+#include <vector>
+
+#include "storage/LocalChunkManager.h"
+
+ using namespace std;
+ using namespace milvus;
+ using namespace milvus::storage;
+
+ class LocalChunkManagerTest : public testing::Test {
+ public:
+    LocalChunkManagerTest() {
+    }
+    ~LocalChunkManagerTest() {
+    }
+
 //    virtual void
 //    SetUp() {
 //        chunkManager_ = make_shared<LocalChunkManager>("");
 //    }
-//
-//    virtual void
-//    TearDown() {
-//        chunkManager_.reset();
-//    }
-//
-//    LocalChunkManagerSPtr chunkManager_;
-//};
-//
+
+    virtual void
+    TearDown() {
+        chunkManager_.reset();
+    }
+
+    LocalChunkManagerSPtr chunkManager_;
+};
+
 // TEST_F(LocalChunkManagerTest, DirPositive) {
 //    string pathPrex = "/tmp/local-test-dir";
 //    chunkManager_->SetPathPrefix(pathPrex);
@@ -226,3 +226,8 @@
 //    EXPECT_EQ(size, 1);
 //    EXPECT_EQ(readdata[0], 0x98);
 //}
+
+TEST_F(LocalChunkManagerTest, ReadPositive) {
+     auto& local_manager = storage::LocalChunkManager::GetInstance();
+     std::cout << local_manager.GetSizeOfDir("/tmp/ci_logs");
+}

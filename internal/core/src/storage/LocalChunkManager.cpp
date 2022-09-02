@@ -183,4 +183,25 @@ LocalChunkManager::RemoveDir(const std::string& dir) {
     }
 }
 
+int64_t
+LocalChunkManager::GetSizeOfDir(const std::string& dir) {
+    boost::filesystem::path dirPath(dir);
+    bool is_dir = boost::filesystem::is_directory(dirPath);
+    if (!is_dir) {
+        throw DirNotExistException("dir:" + dir + " not exists");
+    }
+
+    using boost::filesystem::directory_iterator;
+    using boost::filesystem::directory_entry;
+    std::vector<directory_entry> v;
+    copy(directory_iterator(dirPath), directory_iterator(), back_inserter(v));
+
+    int64_t total_file_size = 0;
+    for ( std::vector<directory_entry>::const_iterator it = v.begin(); it != v.end();  ++ it ) {
+        total_file_size += boost::filesystem::file_size(it->path());
+    }
+
+    return total_file_size;
+}
+
 }  // namespace milvus::storage
