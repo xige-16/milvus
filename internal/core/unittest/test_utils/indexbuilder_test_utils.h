@@ -22,9 +22,7 @@
 #include "index/StringIndex.h"
 #include "indexbuilder/ScalarIndexCreator.h"
 #include "indexbuilder/VecIndexCreator.h"
-#include "indexbuilder/helper.h"
 #include "indexbuilder/index_c.h"
-#include "indexbuilder/utils.h"
 #include "knowhere/index/VecIndexFactory.h"
 #include "knowhere/index/vector_index/helpers/IndexParameter.h"
 #include "knowhere/index/vector_index/adapter/VectorAdapter.h"
@@ -39,11 +37,11 @@ int DEVICEID = 0;
 
 namespace indexcgo = milvus::proto::indexcgo;
 namespace schemapb = milvus::proto::schema;
-using milvus::indexbuilder::MapParams;
+using MapParams = std::map<std::string, std::string>;
 using milvus::indexbuilder::ScalarIndexCreator;
 using ScalarTestParams = std::pair<MapParams, MapParams>;
-using milvus::scalar::ScalarIndexPtr;
-using milvus::scalar::StringIndexPtr;
+using milvus::Index::ScalarIndexPtr;
+using milvus::Index::StringIndexPtr;
 
 namespace {
 auto
@@ -109,36 +107,6 @@ generate_conf(const knowhere::IndexType& index_type, const knowhere::MetricType&
             {knowhere::meta::DIM, DIM},
             {knowhere::meta::TOPK, K},
         };
-#ifdef MILVUS_SUPPORT_NSG
-    } else if (index_type == knowhere::IndexEnum::INDEX_NSG) {
-        return knowhere::Config{
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, K},
-            {knowhere::indexparam::NLIST, 163},
-            {knowhere::indexparam::NPROBE, 8},
-            {knowhere::indexparam::KNNG, 20},
-            {knowhere::indexparam::SEARCH_LENGTH, 40},
-            {knowhere::indexparam::OUT_DEGREE, 30},
-            {knowhere::indexparam::CANDIDATE, 100},
-        };
-#endif
-#ifdef MILVUS_SUPPORT_SPTAG
-    } else if (index_type == knowhere::IndexEnum::INDEX_SPTAG_KDT_RNT) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, 10},
-        };
-    } else if (index_type == knowhere::IndexEnum::INDEX_SPTAG_BKT_RNT) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, 10},
-        };
-#endif
     } else if (index_type == knowhere::IndexEnum::INDEX_HNSW) {
         return knowhere::Config{
             {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
@@ -158,63 +126,6 @@ generate_conf(const knowhere::IndexType& index_type, const knowhere::MetricType&
             {knowhere::indexparam::N_TREES, 4},
             {knowhere::indexparam::SEARCH_K, 100},
         };
-    } else if (index_type == knowhere::IndexEnum::INDEX_RHNSWFlat) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, K},
-            {knowhere::indexparam::HNSW_M, 16},
-            {knowhere::indexparam::EFCONSTRUCTION, 200},
-            {knowhere::indexparam::EF, 200},
-        };
-    } else if (index_type == knowhere::IndexEnum::INDEX_RHNSWPQ) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, K},
-            {knowhere::indexparam::HNSW_M, 16},
-            {knowhere::indexparam::EFCONSTRUCTION, 200},
-            {knowhere::indexparam::EF, 200},
-            {knowhere::indexparam::PQ_M, 8},
-        };
-    } else if (index_type == knowhere::IndexEnum::INDEX_RHNSWSQ) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, K},
-            {knowhere::indexparam::HNSW_M, 16},
-            {knowhere::indexparam::EFCONSTRUCTION, 200},
-            {knowhere::indexparam::EF, 200},
-        };
-#ifdef MILVUS_SUPPORT_NGT
-    } else if (index_type == knowhere::IndexEnum::INDEX_NGTPANNG) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, K},
-            {knowhere::indexparam::EDGE_SIZE, 10},
-            {knowhere::indexparam::EPSILON, 0.1},
-            {knowhere::indexparam::MAX_SEARCH_EDGES, 50},
-            {knowhere::indexparam::FORCEDLY_PRUNED_EDGE_SIZE, 60},
-            {knowhere::indexparam::SELECTIVELY_PRUNED_EDGE_SIZE, 30},
-        };
-    } else if (index_type == knowhere::IndexEnum::INDEX_NGTONNG) {
-        return knowhere::Config{
-            {knowhere::meta::SLICE_SIZE, knowhere::index_file_slice_size},
-            {knowhere::meta::METRIC_TYPE, metric_type},
-            {knowhere::meta::DIM, DIM},
-            {knowhere::meta::TOPK, K},
-            {knowhere::indexparam::EDGE_SIZE, 20},
-            {knowhere::indexparam::EPSILON, 0.1},
-            {knowhere::indexparam::MAX_SEARCH_EDGES, 50},
-            {knowhere::indexparam::OUTGOING_EDGE_SIZE, 5},
-            {knowhere::indexparam::INCOMING_EDGE_SIZE, 40},
-        };
-#endif
     }
     return knowhere::Config();
 }
@@ -253,26 +164,26 @@ GenDataset(int64_t N, const knowhere::MetricType& metric_type, bool is_binary, i
     }
 }
 
-using QueryResultPtr = std::unique_ptr<milvus::indexbuilder::VecIndexCreator::QueryResult>;
-void
-PrintQueryResult(const QueryResultPtr& result) {
-    auto nq = result->nq;
-    auto k = result->topk;
-
-    std::stringstream ss_id;
-    std::stringstream ss_dist;
-
-    for (auto i = 0; i < nq; i++) {
-        for (auto j = 0; j < k; ++j) {
-            ss_id << result->ids[i * k + j] << " ";
-            ss_dist << result->distances[i * k + j] << " ";
-        }
-        ss_id << std::endl;
-        ss_dist << std::endl;
-    }
-    std::cout << "id\n" << ss_id.str() << std::endl;
-    std::cout << "dist\n" << ss_dist.str() << std::endl;
-}
+// using QueryResultPtr = std::unique_ptr<milvus::indexbuilder::VecIndexCreator::QueryResult>;
+// void
+// PrintQueryResult(const QueryResultPtr& result) {
+//    auto nq = result->nq;
+//    auto k = result->topk;
+//
+//    std::stringstream ss_id;
+//    std::stringstream ss_dist;
+//
+//    for (auto i = 0; i < nq; i++) {
+//        for (auto j = 0; j < k; ++j) {
+//            ss_id << result->ids[i * k + j] << " ";
+//            ss_dist << result->distances[i * k + j] << " ";
+//        }
+//        ss_id << std::endl;
+//        ss_dist << std::endl;
+//    }
+//    std::cout << "id\n" << ss_id.str() << std::endl;
+//    std::cout << "dist\n" << ss_dist.str() << std::endl;
+//}
 
 float
 L2(const float* point_a, const float* point_b, int dim) {
@@ -323,26 +234,26 @@ CountDistance(
     }
 }
 
-void
-CheckDistances(const QueryResultPtr& result,
-               const knowhere::DatasetPtr& base_dataset,
-               const knowhere::DatasetPtr& query_dataset,
-               const knowhere::MetricType& metric,
-               const float threshold = 1.0e-5) {
-    auto base_vecs = (float*)knowhere::GetDatasetTensor(base_dataset);
-    auto query_vecs = (float*)knowhere::GetDatasetTensor(query_dataset);
-    auto dim = knowhere::GetDatasetDim(base_dataset);
-    auto nq = result->nq;
-    auto k = result->topk;
-    for (auto i = 0; i < nq; i++) {
-        for (auto j = 0; j < k; ++j) {
-            auto dis = result->distances[i * k + j];
-            auto id = result->ids[i * k + j];
-            auto count_dis = CountDistance(query_vecs + i * dim, base_vecs + id * dim, dim, metric);
-            // assert(std::abs(dis - count_dis) < threshold);
-        }
-    }
-}
+// void
+// CheckDistances(const QueryResultPtr& result,
+//               const knowhere::DatasetPtr& base_dataset,
+//               const knowhere::DatasetPtr& query_dataset,
+//               const knowhere::MetricType& metric,
+//               const float threshold = 1.0e-5) {
+//    auto base_vecs = (float*)knowhere::GetDatasetTensor(base_dataset);
+//    auto query_vecs = (float*)knowhere::GetDatasetTensor(query_dataset);
+//    auto dim = knowhere::GetDatasetDim(base_dataset);
+//    auto nq = result->nq;
+//    auto k = result->topk;
+//    for (auto i = 0; i < nq; i++) {
+//        for (auto j = 0; j < k; ++j) {
+//            auto dis = result->distances[i * k + j];
+//            auto id = result->ids[i * k + j];
+//            auto count_dis = CountDistance(query_vecs + i * dim, base_vecs + id * dim, dim, metric);
+//            // assert(std::abs(dis - count_dis) < threshold);
+//        }
+//    }
+//}
 
 auto
 generate_type_params(const MapParams& m) {
