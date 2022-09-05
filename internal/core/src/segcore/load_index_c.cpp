@@ -228,7 +228,7 @@ AppendIndexInfo(
 }
 
 CStatus
-CleanLocalData(CLoadIndexInfo c_load_index_info) {
+CleanLoadedIndex(CLoadIndexInfo c_load_index_info) {
     try {
         auto load_index_info = (milvus::Index::LoadIndexInfo*)c_load_index_info;
         auto index_file_path_prefix =

@@ -101,7 +101,7 @@ func (li *LoadIndexInfo) appendIndexInfo(indexID int64, buildID int64, indexVers
 }
 
 func (li *LoadIndexInfo) cleanLocalData() error {
-	status := C.CleanLocalData(li.cLoadIndexInfo)
+	status := C.CleanLoadedIndex(li.cLoadIndexInfo)
 	return HandleCStatus(&status, "failed to clean cached data on disk")
 }
 
