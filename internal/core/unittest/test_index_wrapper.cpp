@@ -146,28 +146,6 @@ TEST(IVFFLATNM, Query) {
     index->ClearStatistics();
 }
 
-#ifdef MILVUS_SUPPORT_NSG
-TEST(NSG, Query) {
-    auto index_type = knowhere::IndexEnum::INDEX_NSG;
-    auto metric_type = knowhere::metric::L2;
-    auto conf = generate_conf(index_type, metric_type);
-    auto index = knowhere::VecIndexFactory::GetInstance().CreateVecIndex(index_type);
-    auto dataset = GenDataset(NB, metric_type, false);
-    auto xb_data = dataset.get_col<float>(0);
-    auto xb_dataset = knowhere::GenDataset(NB, DIM, xb_data.data());
-    index->BuildAll(xb_dataset, conf);
-    auto bs = index->Serialize(conf);
-    auto bptr = std::make_shared<knowhere::Binary>();
-    bptr->data = std::shared_ptr<uint8_t[]>((uint8_t*)xb_data.data(), [&](uint8_t*) {});
-    bptr->size = DIM * NB * sizeof(float);
-    bs.Append(RAW_DATA, bptr);
-    index->Load(bs);
-    auto xq_data = dataset.get_col<float>(0);
-    auto xq_dataset = knowhere::GenDataset(NQ, DIM, xq_data.data());
-    auto result = index->Query(xq_dataset, conf, nullptr);
-}
-#endif
-
 TEST(BINFLAT, Build) {
     auto index_type = knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT;
     auto metric_type = knowhere::metric::JACCARD;
@@ -381,7 +359,8 @@ INSTANTIATE_TEST_CASE_P(
                       std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT, knowhere::metric::TANIMOTO),
                       std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IDMAP, knowhere::metric::JACCARD),
                       std::pair(knowhere::IndexEnum::INDEX_HNSW, knowhere::metric::L2),
-                      std::pair(knowhere::IndexEnum::INDEX_ANNOY, knowhere::metric::L2)));
+                      std::pair(knowhere::IndexEnum::INDEX_ANNOY, knowhere::metric::L2)
+                      ));
 
 TEST_P(IndexWrapperTest, Constructor) {
     auto index = std::make_unique<milvus::indexbuilder::VecIndexCreator>(

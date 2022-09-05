@@ -23,7 +23,12 @@ CStatus
 GetLocalUsedSize(int64_t* size) {
     try {
         auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-        *size = local_chunk_manager.GetSizeOfDir(milvus::config::ChunkMangerConfig::GetLocalBucketName());
+        auto dir = milvus::config::ChunkMangerConfig::GetLocalBucketName();
+        if (local_chunk_manager.DirExist(dir)) {
+            *size = local_chunk_manager.GetSizeOfDir(dir);
+        } else {
+            *size = 0;
+        }
         return milvus::SuccessCStatus();
     } catch (std::exception& e) {
         return milvus::FailureCStatus(UnexpectedError, e.what());
