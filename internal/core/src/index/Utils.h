@@ -111,4 +111,7 @@ GetFieldDataMetaFromConfig(const Config& config);
 storage::IndexMeta
 GetIndexMetaFromConfig(const Config& config);
 
+Config
+ParseConfigFromIndexParams(const std::map<std::string, std::string>& index_params);
+
 }  // namespace milvus::Index

@@ -1308,7 +1308,22 @@ func (cit *createIndexTask) PreExecute(ctx context.Context) error {
 		return fmt.Errorf("failed to parse index params: %s", err)
 	}
 
-	return checkTrain(field, indexParams)
+	err = checkTrain(field, indexParams)
+	if err != nil {
+		return err
+	}
+
+	newIndexParams := make([]*commonpb.KeyValuePair, 0)
+	for k, v := range indexParams {
+		newIndexParams = append(newIndexParams, &commonpb.KeyValuePair{
+			Key:   k,
+			Value: v,
+		})
+	}
+
+	cit.ExtraParams = newIndexParams
+
+	return nil
 }
 
 func (cit *createIndexTask) Execute(ctx context.Context) error {

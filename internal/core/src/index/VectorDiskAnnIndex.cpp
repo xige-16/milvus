@@ -51,6 +51,7 @@ VectorDiskAnnIndex<T>::Load(const BinarySet& binary_set /* not used */, const Co
     AssertInfo(index_files.has_value(), "index file paths is empty when load disk ann index data");
     file_manager_->CacheIndexToDisk(index_files.value());
     index_->Prepare(cfg);
+    SetDim(index_->Dim());
 }
 
 template <typename T>
@@ -225,7 +226,6 @@ VectorDiskAnnIndex<T>::parse_prepare_config(Config& config) {
     prepare_config.search_cache_budget_gb =
         (dim + max_degree.value() + 1) * sizeof(float) * 1.2 * num_rows.value() * 0.1 / 1024 / 1024 / 1024;
 
-    std::cout << "prepare search budget gb = " << prepare_config.search_cache_budget_gb << ", num rows = " << num_rows.value() << "max degree = " << max_degree.value() << ", dim =  " << dim << std::endl;
     return prepare_config;
 }
 

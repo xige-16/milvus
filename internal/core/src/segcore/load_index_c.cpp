@@ -120,7 +120,7 @@ appendVecIndex(CLoadIndexInfo c_load_index_info, CBinarySet c_binary_set) {
                                               load_index_info->index_build_id, load_index_info->index_version};
         auto file_manager = milvus::storage::CreateFileManager(index_info.index_type, field_meta, index_meta);
 
-        milvus::Config config;
+        auto config = milvus::Index::ParseConfigFromIndexParams(load_index_info->index_params);
         config["index_files"] = load_index_info->index_files;
 
         load_index_info->index = milvus::Index::IndexFactory::GetInstance().CreateIndex(index_info, file_manager);

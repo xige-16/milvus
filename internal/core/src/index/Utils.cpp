@@ -199,4 +199,14 @@ GetIndexMetaFromConfig(const Config& config) {
     return std::move(index_meta);
 }
 
+Config
+ParseConfigFromIndexParams(const std::map<std::string, std::string>& index_params) {
+    Config config;
+    for (auto& p : index_params) {
+        config[p.first] = p.second;
+    }
+
+    return std::move(config);
+}
+
 }  // namespace milvus::Index
