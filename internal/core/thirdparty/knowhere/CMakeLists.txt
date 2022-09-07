@@ -27,14 +27,15 @@ macro(build_knowhere)
 
     set(KNOWHERE_CMAKE_ARGS
             ${EP_COMMON_CMAKE_ARGS}
-            -DCMAKE_BUILD_TYPE=Release
+            -DCMAKE_BUILD_TYPE=Debug
+            -DKNOWHERE_WITH_DISKANN=ON
             -DCMAKE_INSTALL_PREFIX=${KNOWHERE_INSTALL_PREFIX}
-            -DKNOWHERE_WITH_DISKANN=false
+            -DKNOWHERE_WITH_DISKANN=true
             )
 
     externalproject_add(knowhere_ep
-            #GIT_REPOSITORY  "https://github.com/milvus-io/knowhere.git"
-            #GIT_TAG         main
+            GIT_REPOSITORY  "https://github.com/milvus-io/knowhere.git"
+            GIT_TAG         main
             URL             ${KNOWHERE_SOURCE_URL}
             URL_MD5         ${KNOWHERE_SOURCE_MD5}
             CMAKE_ARGS      ${KNOWHERE_CMAKE_ARGS}
