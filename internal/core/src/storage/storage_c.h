@@ -13,22 +13,17 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
 #pragma once
-#include <string>
 
-namespace milvus::config {
+#ifdef __cplusplus
+extern "C" {
+#endif
 
-void
-KnowhereInitImpl(const char*);
+#include "common/type_c.h"
 
-std::string
-KnowhereSetSimdType(const char*);
+CStatus
+GetLocalUsedSize(int64_t* size);
 
-void
-KnowhereSetIndexSliceSize(const int64_t size);
-
-int64_t
-KnowhereGetIndexSliceSize();
-
-}  // namespace milvus::config
+#ifdef __cplusplus
+};
+#endif

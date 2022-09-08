@@ -14,21 +14,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#pragma once
-#include <string>
+#include "storage/storage_c.h"
+#include "storage/LocalChunkManager.h"
+#include "config/ConfigChunkManager.h"
+#include "common/CGoHelper.h"
 
-namespace milvus::config {
-
-void
-KnowhereInitImpl(const char*);
-
-std::string
-KnowhereSetSimdType(const char*);
-
-void
-KnowhereSetIndexSliceSize(const int64_t size);
-
-int64_t
-KnowhereGetIndexSliceSize();
-
-}  // namespace milvus::config
+CStatus
+GetLocalUsedSize(int64_t* size) {
+    try {
+        auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
+        auto dir = milvus::ChunkMangerConfig::GetLocalBucketName();
+        if (local_chunk_manager.DirExist(dir)) {
+            *size = local_chunk_manager.GetSizeOfDir(dir);
+        } else {
+            *size = 0;
+        }
+        return milvus::SuccessCStatus();
+    } catch (std::exception& e) {
+        return milvus::FailureCStatus(UnexpectedError, e.what());
+    }
+}
