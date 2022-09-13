@@ -977,6 +977,10 @@ func (mt *metaTable) ResetMeta(buildID UniqueID) error {
 		return fmt.Errorf("there is no index with buildID: %d", buildID)
 	}
 	updateFunc := func(segIdx *model.SegmentIndex) error {
+		if segIdx.IndexState == commonpb.IndexState_InProgress {
+			metrics.IndexCoordIndexRequestCounter.WithLabelValues(metrics.InProgressIndexTaskLabel).Desc()
+			metrics.IndexCoordIndexRequestCounter.WithLabelValues(metrics.UnissuedIndexTaskLabel).Inc()
+		}
 		segIdx.NodeID = 0
 		segIdx.IndexState = commonpb.IndexState_Unissued
 		return mt.alterSegmentIndexes([]*model.SegmentIndex{segIdx})

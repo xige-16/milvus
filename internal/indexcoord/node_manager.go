@@ -86,11 +86,23 @@ func (nm *NodeManager) AddNode(nodeID UniqueID, address string) error {
 		log.Warn("IndexCoord", zap.Any("Node client already exist with ID:", nodeID))
 		return nil
 	}
+	var (
+		nodeClient types.IndexNode = nil
+		err        error           = nil
+	)
 
-	nodeClient, err := grpcindexnodeclient.NewClient(context.TODO(), address)
-	if err != nil {
-		log.Error("IndexCoord NodeManager", zap.Any("Add node err", err))
-		return err
+	if Params.IndexCoordCfg.BindIndexNodeMode == poolBindIndexNodeMode {
+		nodeClient, err = grpcindexnodeclient.NewClient(context.TODO(), Params.IndexCoordCfg.IndexNodeAddress, Params.IndexCoordCfg.WithCredential)
+		if err != nil {
+			log.Error("IndexCoord new IndexNodeManager client fail", zap.Error(err))
+			return err
+		}
+	} else {
+		nodeClient, err = grpcindexnodeclient.NewClient(context.TODO(), address, Params.IndexCoordCfg.WithCredential)
+		if err != nil {
+			log.Error("IndexCoord NodeManager", zap.Any("Add node err", err))
+			return err
+		}
 	}
 	err = nodeClient.Init()
 	if err != nil {
@@ -125,6 +137,7 @@ func (nm *NodeManager) PeekClient(meta *model.SegmentIndex) (UniqueID, types.Ind
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			log.Debug("nodeManager peek client", zap.Int64("nodeID", nodeID))
 			resp, err := client.GetJobStats(ctx, &indexpb.GetJobStatsRequest{})
 			if err != nil {
 				log.Warn("get IndexNode slots failed", zap.Int64("nodeID", nodeID), zap.Error(err))
@@ -135,6 +148,7 @@ func (nm *NodeManager) PeekClient(meta *model.SegmentIndex) (UniqueID, types.Ind
 					zap.String("reason", resp.Status.Reason))
 				return
 			}
+			log.Debug("get job stats success", zap.Int64("nodeID", nodeID), zap.Int64("task slot", resp.TaskSlots))
 			if resp.TaskSlots > 0 {
 				nodeMutex.Lock()
 				defer nodeMutex.Unlock()
@@ -157,6 +171,62 @@ func (nm *NodeManager) PeekClient(meta *model.SegmentIndex) (UniqueID, types.Ind
 
 	log.Warn("IndexCoord peek client fail")
 	return 0, nil
+}
+
+func (nm *NodeManager) ClientSupportDisk() bool {
+	log.Info("IndexCoord check client does support disk index")
+	allClients := nm.GetAllClients()
+	if len(allClients) == 0 {
+		log.Error("there is no IndexNode online")
+		return false
+	}
+
+	// Note: In order to quickly end other goroutines, an error is returned when the client is successfully selected
+	ctx, cancel := context.WithCancel(nm.ctx)
+	var (
+		enableDisk = false
+		nodeMutex  = sync.Mutex{}
+		wg         = sync.WaitGroup{}
+	)
+
+	for nodeID, client := range allClients {
+		nodeID := nodeID
+		client := client
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			log.Debug("nodeManager peek client", zap.Int64("nodeID", nodeID))
+			resp, err := client.GetJobStats(ctx, &indexpb.GetJobStatsRequest{})
+			if err != nil {
+				log.Warn("get IndexNode slots failed", zap.Int64("nodeID", nodeID), zap.Error(err))
+				return
+			}
+			if resp.Status.ErrorCode != commonpb.ErrorCode_Success {
+				log.Warn("get IndexNode slots failed", zap.Int64("nodeID", nodeID),
+					zap.String("reason", resp.Status.Reason))
+				return
+			}
+			log.Debug("get job stats success", zap.Int64("nodeID", nodeID), zap.Bool("enable disk", resp.EnableDisk))
+			if resp.EnableDisk {
+				nodeMutex.Lock()
+				defer nodeMutex.Unlock()
+				cancel()
+				if !enableDisk {
+					enableDisk = true
+				}
+				return
+			}
+		}()
+	}
+	wg.Wait()
+	cancel()
+	if enableDisk {
+		log.Info("IndexNode support disk index")
+		return true
+	}
+
+	log.Warn("all IndexNodes do not support disk indexes")
+	return false
 }
 
 func (nm *NodeManager) GetAllClients() map[UniqueID]types.IndexNode {

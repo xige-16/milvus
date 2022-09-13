@@ -21,6 +21,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/milvus-io/milvus/api/commonpb"
 	"github.com/milvus-io/milvus/api/schemapb"
 	"github.com/milvus-io/milvus/internal/log"
 	"github.com/milvus-io/milvus/internal/proto/indexpb"
@@ -65,4 +66,16 @@ func parseBuildIDFromFilePath(key string) (UniqueID, error) {
 		return strconv.ParseInt(ss[len(ss)-2], 10, 64)
 	}
 	return strconv.ParseInt(ss[len(ss)-1], 10, 64)
+}
+
+func GetEngineType(indexParams []*commonpb.KeyValuePair) string {
+	for _, param := range indexParams {
+		if param.Key == "index_type" {
+			if param.Value == "DISKANN" {
+				return diskAnnIndex
+			}
+			return memoryIndex
+		}
+	}
+	return invalidIndex
 }

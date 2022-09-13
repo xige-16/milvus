@@ -69,6 +69,7 @@ func (i *IndexNode) CreateJob(ctx context.Context, req *indexpb.CreateJobRequest
 		}, nil
 	}
 	task := &indexBuildTask{
+
 		ident:          fmt.Sprintf("%s/%d", req.ClusterID, req.BuildID),
 		ctx:            taskCtx,
 		cancel:         taskCancel,

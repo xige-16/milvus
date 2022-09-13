@@ -233,6 +233,11 @@ indexCoord:
 
   minSegmentNumRowsToEnableIndex: 1024 # It's a threshold. When the segment num rows is less than this value, the segment will not be indexed
 
+  bindIndexNodeMode:
+    mode: "pool"
+    address: "localhost:22930"
+    withCred: false
+
   gc:
     interval: 600 # gc interval in seconds
 
