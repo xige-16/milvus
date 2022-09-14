@@ -55,6 +55,9 @@ GetRawValuesFromArrowArray(std::shared_ptr<arrow::Array> array, DataType data_ty
 int
 GetDimensionFromArrowArray(std::shared_ptr<arrow::Array> array, DataType data_type);
 
+void
+WriteRawDataToDisk(const std::string data_path, const float* raw_data, const uint32_t num, const uint32_t dim);
+
 std::string
 GetLocalIndexPathPrefixWithBuildID(int64_t build_id);
 
@@ -68,6 +71,6 @@ std::string
 GetLocalRawDataPathPrefixWithBuildID(int64_t segment_id);
 
 FileManagerImplPtr
-CreateFileManager(knowhere::IndexType index_type, const FieldDataMeta& field_meta, const IndexMeta& index_meta);
+CreateFileManager(IndexType index_type, const FieldDataMeta& field_meta, const IndexMeta& index_meta);
 
 }  // namespace milvus::storage
