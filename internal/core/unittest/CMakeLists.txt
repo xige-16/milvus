@@ -47,6 +47,8 @@ set(MILVUS_TEST_FILES
         test_timestamp_index.cpp
         test_utils.cpp
         test_data_codec.cpp
+        test_minio_chunk_manager.cpp
+        test_local_chunk_manager.cpp
         )
 
 if (LINUX OR APPLE)
@@ -63,6 +65,7 @@ if (LINUX)
             test_index_wrapper.cpp
             test_scalar_index_creator.cpp
             test_index_c_api.cpp
+            test_disk_file_manager_test.cpp
             )
 
     add_executable(index_builder_test

@@ -16,8 +16,10 @@
 
 #include "storage/Util.h"
 #include "exceptions/EasyAssert.h"
+#include <boost/filesystem.hpp>
 #include "common/Consts.h"
 #include "config/ConfigChunkManager.h"
+#include "storage/DiskFileManagerImpl.h"
 
 namespace milvus::storage {
 
@@ -318,6 +320,15 @@ GetDimensionFromArrowArray(std::shared_ptr<arrow::Array> data, DataType data_typ
     }
 }
 
+void
+WriteRawDataToDisk(const std::string data_path, const float* raw_data, const uint32_t num, const uint32_t dim) {
+    std::ofstream writer(data_path.c_str(), std::ios::binary);
+    writer.write((char*)&num, sizeof(uint32_t));
+    writer.write((char*)&dim, sizeof(uint32_t));
+    writer.write((char*)raw_data, sizeof(float) * num * dim);
+    writer.close();
+}
+
 std::string
 GenLocalIndexPathPrefix(int64_t build_id, int64_t index_version) {
     return milvus::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(INDEX_ROOT_PATH) + "/" +
@@ -340,6 +351,12 @@ std::string
 GetLocalRawDataPathPrefixWithBuildID(int64_t segment_id) {
     return milvus::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(RAWDATA_ROOT_PATH) + "/" +
            std::to_string(segment_id);
+}
+
+FileManagerImplPtr
+CreateFileManager(IndexType index_type, const FieldDataMeta& field_meta, const IndexMeta& index_meta) {
+    // TODO :: switch case index type to create file manager
+    return std::make_shared<DiskFileManagerImpl>(field_meta, index_meta);
 }
 
 }  // namespace milvus::storage
