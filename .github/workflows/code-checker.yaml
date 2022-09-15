@@ -5,63 +5,63 @@ name: Code Checker
 on:
   push:
     branches:
-      - master
-  pull_request:
-    # file paths to consider in the event. Optional; defaults to all.
-    paths:
-      - 'scripts/**'
-      - 'internal/**'
-      - 'cmd/**'
-      - 'build/**'
-      - '.github/workflows/code-checker.yaml'
-      - '.env'
-      - docker-compose.yml
-      - Makefile
-      - '!**.md'
-      - '!build/ci/jenkins/**'
-      # FIXME(wxyu): not need to run code check, update the ci-passed rules and remove these two lines
-      - go.mod
-      - go.sum
+      - build-diskann-debug
+  # pull_request:
+  #   # file paths to consider in the event. Optional; defaults to all.
+  #   paths:
+  #     - 'scripts/**'
+  #     - 'internal/**'
+  #     - 'cmd/**'
+  #     - 'build/**'
+  #     - '.github/workflows/code-checker.yaml'
+  #     - '.env'
+  #     - docker-compose.yml
+  #     - Makefile
+  #     - '!**.md'
+  #     - '!build/ci/jenkins/**'
+  #     # FIXME(wxyu): not need to run code check, update the ci-passed rules and remove these two lines
+  #     - go.mod
+  #     - go.sum
 
 jobs:
-  ubuntu:
-    name: ${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-        - name: Code Checker AMD64 Ubuntu 20.04
-          os: ubuntu-20.04
-    env:
-      UBUNTU: 20.04
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v2
-      - name: Cache CCache Volumes
-        uses: actions/cache@v3
-        with:
-          path: .docker/amd64-ubuntu20.04-ccache
-          key: ubuntu20.04-ccache-${{ hashFiles('internal/core/**') }}
-          restore-keys: ubuntu20.04-ccache-
-      - name: Cache Third Party
-        uses: actions/cache@v3
-        with:
-          path: .docker/thirdparty
-          key: ubuntu20.04-thirdparty-${{ hashFiles('internal/core/thirdparty/**') }}
-          restore-keys: ubuntu20.04-thirdparty-
-      - name: Cache Go Mod Volumes
-        uses: actions/cache@v3
-        with:
-          path: .docker/amd64-ubuntu20.04-go-mod
-          key: ubuntu20.04-go-mod-${{ hashFiles('**/go.sum') }}
-          restore-keys: ubuntu20.04-go-mod-
-      - name: Code Check
-        env:
-          CHECK_BUILDER: "1"
-        run: |
-           ./build/builder.sh /bin/bash -c "make check-proto-product && make verifiers"
+  # ubuntu:
+  #   name: ${{ matrix.name }}
+  #   runs-on: ${{ matrix.os }}
+  #   timeout-minutes: 60
+  #   strategy:
+  #     fail-fast: false
+  #     matrix:
+  #       include:
+  #       - name: Code Checker AMD64 Ubuntu 20.04
+  #         os: ubuntu-20.04
+  #   env:
+  #     UBUNTU: 20.04
+  #   steps:
+  #     - name: Checkout
+  #       uses: actions/checkout@v2
+  #     - name: Cache CCache Volumes
+  #       uses: actions/cache@v3
+  #       with:
+  #         path: .docker/amd64-ubuntu20.04-ccache
+  #         key: ubuntu20.04-ccache-${{ hashFiles('internal/core/**') }}
+  #         restore-keys: ubuntu20.04-ccache-
+  #     - name: Cache Third Party
+  #       uses: actions/cache@v3
+  #       with:
+  #         path: .docker/thirdparty
+  #         key: ubuntu20.04-thirdparty-${{ hashFiles('internal/core/thirdparty/**') }}
+  #         restore-keys: ubuntu20.04-thirdparty-
+  #     - name: Cache Go Mod Volumes
+  #       uses: actions/cache@v3
+  #       with:
+  #         path: .docker/amd64-ubuntu20.04-go-mod
+  #         key: ubuntu20.04-go-mod-${{ hashFiles('**/go.sum') }}
+  #         restore-keys: ubuntu20.04-go-mod-
+  #     - name: Code Check
+  #       env:
+  #         CHECK_BUILDER: "1"
+  #       run: |
+  #          ./build/builder.sh /bin/bash -c "make check-proto-product && make verifiers"
   centos:
     name: Code Checker CentOS 7
     # Run in centos docker 
@@ -93,7 +93,7 @@ jobs:
           CHECK_BUILDER: "1"
           OS_NAME: "centos7"
         run: |
-           ./build/builder.sh /bin/bash -c "make install"
+           ./build/builder.sh /bin/bash -c "VERBOSE=1 make install"
   mingw64:
     name: ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
