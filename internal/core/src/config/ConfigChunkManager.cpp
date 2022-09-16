@@ -22,8 +22,8 @@ std::string REMOTE_ADDRESS = "localhost:9000";   // NOLINT
 std::string REMOTE_ACCESS_KEY = "minioadmin";    // NOLINT
 std::string REMOTE_ACCESS_VALUE = "minioadmin";  // NOLINT
 std::string REMOTE_BUCKET_NAME = "a-bucket";     // NOLINT
-std::string REMOTE_ROOT_PATH = "files";
-std::string LOCAL_ROOT_PATH = "/tmp/milvus";  // NOLINT
+std::string REMOTE_ROOT_PATH = "files";          // NOLINT
+std::string LOCAL_ROOT_PATH = "/tmp/milvus";     // NOLINT
 bool MINIO_USE_SSL = false;
 
 void
