@@ -19,7 +19,7 @@ package indexparamcheck
 import (
 	"strconv"
 
-	"github.com/milvus-io/milvus/internal/proto/schemapb"
+	"github.com/milvus-io/milvus/api/schemapb"
 	"github.com/milvus-io/milvus/internal/util/funcutil"
 )
 
