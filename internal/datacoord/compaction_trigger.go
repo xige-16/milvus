@@ -18,6 +18,9 @@ package datacoord
 
 import (
 	"context"
+	"github.com/milvus-io/milvus/internal/proto/indexpb"
+	"github.com/milvus-io/milvus/internal/util/funcutil"
+	"github.com/milvus-io/milvus/internal/util/indexparamcheck"
 	"sort"
 	"sync"
 	"time"
@@ -228,6 +231,31 @@ func getPlanIDs(plans []*datapb.CompactionPlan) []int64 {
 	return ids
 }
 
+func (t *compactionTrigger) updateSegmentMaxSize(segments []*SegmentInfo) error {
+	ctx := context.Background()
+
+	collectionID := segments[0].GetCollectionID()
+	resp, err := t.indexCoord.DescribeIndex(ctx, &indexpb.DescribeIndexRequest{
+		CollectionID: collectionID,
+		IndexName:    "",
+	})
+	if err != nil {
+		return err
+	}
+
+	for _, indexInfo := range resp.IndexInfos {
+		indexParamsMap := funcutil.KeyValuePair2Map(indexInfo.IndexParams)
+		if indexType, ok := indexParamsMap["index_type"]; ok {
+			if indexType == indexparamcheck.IndexDISKANN {
+				for _, segment := range segments {
+					segment.MaxRowNum = int64(Params.DataCoordCfg.DiskSegmentMaxSize)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 func (t *compactionTrigger) handleGlobalSignal(signal *compactionSignal) {
 	t.forceMu.Lock()
 	defer t.forceMu.Unlock()
@@ -242,6 +270,12 @@ func (t *compactionTrigger) handleGlobalSignal(signal *compactionSignal) {
 	for _, group := range m {
 		if !signal.isForce && t.compactionHandler.isFull() {
 			break
+		}
+
+		err := t.updateSegmentMaxSize(group.segments)
+		if err != nil {
+			log.Warn("failed to update segment max size,", zap.Error(err))
+			continue
 		}
 
 		plans := t.generatePlans(group.segments, signal.isForce, signal.compactTime)
@@ -291,6 +325,12 @@ func (t *compactionTrigger) handleSignal(signal *compactionSignal) {
 	channel := segment.GetInsertChannel()
 	partitionID := segment.GetPartitionID()
 	segments := t.getCandidateSegments(channel, partitionID)
+
+	err := t.updateSegmentMaxSize(segments)
+	if err != nil {
+		log.Warn("failed to update segment max size", zap.Error(err))
+	}
+
 	plans := t.generatePlans(segments, signal.isForce, signal.compactTime)
 	for _, plan := range plans {
 		if t.compactionHandler.isFull() {

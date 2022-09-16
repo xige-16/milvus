@@ -25,6 +25,7 @@ std::string REMOTE_BUCKET_NAME = "a-bucket";     // NOLINT
 std::string REMOTE_ROOT_PATH = "files";          // NOLINT
 std::string LOCAL_ROOT_PATH = "/tmp/milvus";     // NOLINT
 bool MINIO_USE_SSL = false;
+bool MINIO_USE_IAM = false;
 
 void
 SetAddress(const std::string& address) {
@@ -74,6 +75,16 @@ SetUseSSL(bool use_ssl) {
 bool
 GetUseSSL() {
     return MINIO_USE_SSL;
+}
+
+void
+SetUseIAM(bool use_iam) {
+    MINIO_USE_IAM = use_iam;
+}
+
+bool
+GetUseIAM() {
+    return MINIO_USE_IAM;
 }
 
 void

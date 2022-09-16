@@ -35,6 +35,9 @@ void
 MinioSSLInit(bool use_ssl);
 
 void
+MinioUseIamInit(bool use_ssl);
+
+void
 MinioBucketNameInit(const char*);
 
 void

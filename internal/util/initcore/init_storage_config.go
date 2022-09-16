@@ -49,6 +49,9 @@ func InitMinioConfig(params *paramtable.ComponentParam) {
 	CUseSSL := C.bool(params.MinioCfg.UseSSL)
 	C.MinioSSLInit(CUseSSL)
 
+	CUseIam := C.bool(params.MinioCfg.UseIAM)
+	C.MinioUseIamInit(CUseIam)
+
 	CMinioBucketName := C.CString(strings.TrimLeft(params.MinioCfg.BucketName, "/"))
 	C.MinioBucketNameInit(CMinioBucketName)
 	C.free(unsafe.Pointer(CMinioBucketName))

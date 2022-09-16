@@ -43,6 +43,11 @@ MinioSSLInit(bool use_ssl) {
 }
 
 void
+MinioUseIamInit(bool use_iam) {
+    milvus::ChunkMangerConfig::SetUseIAM(use_iam);
+}
+
+void
 MinioBucketNameInit(const char* name) {
     std::string bucket_name(name);
     milvus::ChunkMangerConfig::SetBucketName(name);

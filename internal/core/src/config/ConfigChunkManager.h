@@ -45,6 +45,12 @@ bool
 GetUseSSL();
 
 void
+SetUseIAM(bool use_iam);
+
+bool
+GetUseIAM();
+
+void
 SetBucketName(const std::string& bucket_name);
 
 std::string
