@@ -46,7 +46,6 @@ endif ()
 
 target_link_libraries(milvus_segcore
         milvus_query
-        milvus_common
         ${PLATFORM_LIBS}
         ${TBB}
         ${OpenMP_CXX_FLAGS}

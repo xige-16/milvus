@@ -35,9 +35,6 @@ if (MSYS)
 endif ()
 
 target_link_libraries(milvus_index
-        milvus_exceptions
-        knowhere
-        milvus_common
         milvus_storage
         ${PLATFORM_LIBS}
         )

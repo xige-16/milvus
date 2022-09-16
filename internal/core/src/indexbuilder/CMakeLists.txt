@@ -28,9 +28,7 @@ endif ()
 
 # link order matters
 target_link_libraries(milvus_indexbuilder
-        milvus_common
         milvus_index
-        knowhere
         ${TBB}
         ${PLATFORM_LIBS}
         )

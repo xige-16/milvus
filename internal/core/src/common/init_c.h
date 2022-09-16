@@ -38,6 +38,9 @@ void
 MinioBucketNameInit(const char*);
 
 void
+MinioRootPathInit(const char*);
+
+void
 LocalRootPathInit(const char*);
 
 #ifdef __cplusplus

@@ -95,7 +95,7 @@ class DiskAnnFileManagerTest : public testing::Test {
 
     void
     InitLocalChunkManager() {
-        ChunkMangerConfig::SetLocalBucketName("/tmp/diskann");
+        ChunkMangerConfig::SetLocalRootPath("/tmp/diskann");
         config::KnowhereSetIndexSliceSize(5);
     }
 

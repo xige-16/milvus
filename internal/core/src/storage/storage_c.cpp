@@ -27,7 +27,7 @@ GetLocalUsedSize(int64_t* size) {
     try {
 #ifdef BUILD_DISK_ANN
         auto& local_chunk_manager = milvus::storage::LocalChunkManager::GetInstance();
-        auto dir = milvus::ChunkMangerConfig::GetLocalBucketName();
+        auto dir = milvus::ChunkMangerConfig::GetLocalRootPath();
         if (local_chunk_manager.DirExist(dir)) {
             *size = local_chunk_manager.GetSizeOfDir(dir);
         } else {

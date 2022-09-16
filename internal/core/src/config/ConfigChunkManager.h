@@ -51,9 +51,15 @@ std::string
 GetBucketName();
 
 void
-SetLocalBucketName(const std::string& path_prefix);
+SetRemoteRootPath(const std::string& path_prefix);
 
 std::string
-GetLocalBucketName();
+GetRemoteRootPath();
+
+void
+SetLocalRootPath(const std::string& path_prefix);
+
+std::string
+GetLocalRootPath();
 
 }  // namespace milvus::ChunkMangerConfig

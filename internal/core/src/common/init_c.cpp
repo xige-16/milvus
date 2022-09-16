@@ -49,7 +49,13 @@ MinioBucketNameInit(const char* name) {
 }
 
 void
+MinioRootPathInit(const char* name) {
+    std::string root_path(name);
+    milvus::ChunkMangerConfig::SetRemoteRootPath(name);
+}
+
+void
 LocalRootPathInit(const char* root_path) {
     std::string local_path_root(root_path);
-    milvus::ChunkMangerConfig::SetLocalBucketName(local_path_root);
+    milvus::ChunkMangerConfig::SetLocalRootPath(local_path_root);
 }

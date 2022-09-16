@@ -324,25 +324,25 @@ GetDimensionFromArrowArray(std::shared_ptr<arrow::Array> data, DataType data_typ
 
 std::string
 GenLocalIndexPathPrefix(int64_t build_id, int64_t index_version) {
-    return milvus::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(INDEX_ROOT_PATH) + "/" +
+    return milvus::ChunkMangerConfig::GetLocalRootPath() + "/" + std::string(INDEX_ROOT_PATH) + "/" +
            std::to_string(build_id) + "/" + std::to_string(index_version) + "/";
 }
 
 std::string
 GetLocalIndexPathPrefixWithBuildID(int64_t build_id) {
-    return milvus::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(INDEX_ROOT_PATH) + "/" +
+    return milvus::ChunkMangerConfig::GetLocalRootPath() + "/" + std::string(INDEX_ROOT_PATH) + "/" +
            std::to_string(build_id);
 }
 
 std::string
 GenRawDataPathPrefix(int64_t segment_id, int64_t field_id) {
-    return milvus::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(RAWDATA_ROOT_PATH) + "/" +
+    return milvus::ChunkMangerConfig::GetLocalRootPath() + "/" + std::string(RAWDATA_ROOT_PATH) + "/" +
            std::to_string(segment_id) + "/" + std::to_string(field_id) + "/";
 }
 
 std::string
 GetLocalRawDataPathPrefixWithBuildID(int64_t segment_id) {
-    return milvus::ChunkMangerConfig::GetLocalBucketName() + "/" + std::string(RAWDATA_ROOT_PATH) + "/" +
+    return milvus::ChunkMangerConfig::GetLocalRootPath() + "/" + std::string(RAWDATA_ROOT_PATH) + "/" +
            std::to_string(segment_id);
 }
 

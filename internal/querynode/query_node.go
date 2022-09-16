@@ -30,13 +30,11 @@ import "C"
 import (
 	"context"
 	"fmt"
-	"github.com/milvus-io/milvus/internal/util/metricsinfo"
 	"os"
 	"path"
 	"path/filepath"
 	"runtime"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -59,6 +57,8 @@ import (
 	"github.com/milvus-io/milvus/internal/util"
 	"github.com/milvus-io/milvus/internal/util/concurrency"
 	"github.com/milvus-io/milvus/internal/util/dependency"
+	"github.com/milvus-io/milvus/internal/util/initcore"
+	"github.com/milvus-io/milvus/internal/util/metricsinfo"
 	"github.com/milvus-io/milvus/internal/util/paramtable"
 	"github.com/milvus-io/milvus/internal/util/sessionutil"
 	"github.com/milvus-io/milvus/internal/util/typeutil"
@@ -218,30 +218,8 @@ func (node *QueryNode) InitSegcore() {
 	cIndexSliceSize := C.int64_t(Params.CommonCfg.IndexSliceSize)
 	C.SegcoreSetIndexSliceSize(cIndexSliceSize)
 
-	b, _ := os.Getwd()
-	LocalRootPath := filepath.Dir(b) + "/" + filepath.Base(b) + "/data/"
-	CLocalRootPath := C.CString(LocalRootPath)
-	C.LocalRootPathInit(CLocalRootPath)
-	C.free(unsafe.Pointer(CLocalRootPath))
-
-	CMinioAddress := C.CString(Params.MinioCfg.Address)
-	C.MinioAddressInit(CMinioAddress)
-	C.free(unsafe.Pointer(CMinioAddress))
-
-	CMinioAccessKey := C.CString(Params.MinioCfg.AccessKeyID)
-	C.MinioAccessKeyInit(CMinioAccessKey)
-	C.free(unsafe.Pointer(CMinioAccessKey))
-
-	CMinioAccessValue := C.CString(Params.MinioCfg.SecretAccessKey)
-	C.MinioAccessValueInit(CMinioAccessValue)
-	C.free(unsafe.Pointer(CMinioAccessValue))
-
-	CUseSSL := C.bool(Params.MinioCfg.UseSSL)
-	C.MinioSSLInit(CUseSSL)
-
-	CMinioBucketName := C.CString(strings.TrimLeft(Params.MinioCfg.BucketName, "/"))
-	C.MinioBucketNameInit(CMinioBucketName)
-	C.free(unsafe.Pointer(CMinioBucketName))
+	initcore.InitLocalStorageConfig(&Params)
+	initcore.InitMinioConfig(&Params)
 }
 
 // Init function init historical and streaming module to manage segments

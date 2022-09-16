@@ -25,12 +25,13 @@ package querynode
 import "C"
 
 import (
-	"github.com/golang/protobuf/proto"
-	"github.com/milvus-io/milvus/internal/proto/commonpb"
-	"github.com/milvus-io/milvus/internal/proto/indexcgopb"
 	"path/filepath"
 	"unsafe"
 
+	"github.com/golang/protobuf/proto"
+
+	"github.com/milvus-io/milvus/internal/proto/commonpb"
+	"github.com/milvus-io/milvus/internal/proto/indexcgopb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/internal/proto/schemapb"
 )
