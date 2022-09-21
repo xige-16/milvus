@@ -425,8 +425,7 @@ class TestNewIndexBase(TestcaseBase):
                                       index_name=ct.default_index_name)
             assert len(collection_w.indexes) == 1
 
-    @pytest.mark.skip(reason="https://github.com/milvus-io/milvus/issues/12598")
-    @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.tags(CaseLabel.L1)
     def test_annoy_index(self):
         # The strange thing is that the indexnode crash is only reproduced when nb is 50000 and dim is 512
         nb = 50000
@@ -1442,5 +1441,27 @@ class TestIndexString(TestcaseBase):
         data = cf.gen_default_list_data()
         collection_w.insert(data=data)
         collection_w.create_index(default_string_field_name, default_string_index_params, index_name=index_name2)
+        collection_w.drop_index(index_name=index_name2)
+        assert len(collection_w.indexes) == 0
+    
+    @pytest.mark.tags(CaseLabel.L1)
+    def test_index_with_string_field_empty(self):
+        """
+        target: test drop index with string field
+        method: 1.create collection and insert data
+                2.create index and uses collection.drop_index () drop index
+        expected: drop index successfully
+        """
+        c_name = cf.gen_unique_str(prefix)
+        collection_w = self.init_collection_wrap(name=c_name)
+
+        nb = 3000
+        data = cf.gen_default_list_data(nb)
+        data[2] = [""for _ in range(nb)] 
+        collection_w.insert(data=data)
+
+        collection_w.create_index(default_string_field_name, default_string_index_params, index_name=index_name2)
+        assert collection_w.has_index(index_name=index_name2)[0] == True
+
         collection_w.drop_index(index_name=index_name2)
         assert len(collection_w.indexes) == 0
