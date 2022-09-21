@@ -533,7 +533,10 @@ func (scheduler *taskScheduler) remove(task Task) {
 	log := log.With(
 		zap.Int64("task", task.ID()),
 	)
-	task.Cancel()
+	if task.Status() != TaskStatusSucceeded {
+		task.Cancel()
+	}
+
 	scheduler.tasks.Remove(task.ID())
 	scheduler.waitQueue.Remove(task)
 	scheduler.processQueue.Remove(task)
