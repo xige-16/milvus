@@ -181,7 +181,7 @@ queryCoord:
   memoryUsageMaxDifferencePercentage: 30
   checkInterval: 1000
   channelTaskTimeout: 60000 # 1 minute
-  segmentTaskTimeout: 120000 # 2 minute
+  segmentTaskTimeout: 12000000 # 200 minute
   distPullInterval: 500
   loadTimeoutSeconds: 600
   checkHandoffInterval: 5000

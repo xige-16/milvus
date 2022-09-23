@@ -732,7 +732,7 @@ func (p *queryCoordConfig) initChannelTaskTimeout() {
 }
 
 func (p *queryCoordConfig) initSegmentTaskTimeout() {
-	timeout := p.Base.LoadWithDefault("queryCoord.segmentTaskTimeout", "120000")
+	timeout := p.Base.LoadWithDefault("queryCoord.segmentTaskTimeout", "12000000")
 	taskTimeout, err := strconv.ParseInt(timeout, 10, 64)
 	if err != nil {
 		panic(err)

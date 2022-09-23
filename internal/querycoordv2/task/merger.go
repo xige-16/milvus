@@ -12,7 +12,7 @@ import (
 
 // Merger merges tasks with the same mergeID.
 const (
-	taskQueueCap = 16
+	taskQueueCap = 2
 	waitQueueCap = 128
 )
 
