@@ -177,6 +177,7 @@ func (broker *CoordinatorBroker) GetIndexInfo(ctx context.Context, collectionID 
 
 	indexes := make([]*querypb.FieldIndexInfo, 0)
 	for _, info := range segmentInfo.GetIndexInfos() {
+		log.Debug("get index info form index coord, ", zap.Any("index", info))
 		indexes = append(indexes, &querypb.FieldIndexInfo{
 			FieldID:        info.GetFieldID(),
 			EnableIndex:    true,
@@ -191,5 +192,6 @@ func (broker *CoordinatorBroker) GetIndexInfo(ctx context.Context, collectionID 
 		})
 	}
 
+	log.Debug("get index info from index coord, enable index", zap.Any("index", indexes))
 	return indexes, nil
 }

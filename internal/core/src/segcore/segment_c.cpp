@@ -206,9 +206,13 @@ LoadFieldData(CSegmentInterface c_segment, CLoadFieldDataInfo load_field_data_in
         auto field_data = std::make_unique<milvus::DataArray>();
         auto suc = field_data->ParseFromArray(load_field_data_info.blob, load_field_data_info.blob_size);
         AssertInfo(suc, "unmarshal field data string failed");
+        std::cout << "parse from array done, fieldID = " << load_field_data_info.field_id
+                  << ", segmentID = " << segment->get_segment_id() << std::endl;
         auto load_info =
             LoadFieldDataInfo{load_field_data_info.field_id, field_data.get(), load_field_data_info.row_count};
         segment->LoadFieldData(load_info);
+        std::cout << "load field data done, fieldID = " << load_field_data_info.field_id
+                  << ", segmentID = " << segment->get_segment_id() << std::endl;
         return milvus::SuccessCStatus();
     } catch (std::exception& e) {
         return milvus::FailureCStatus(UnexpectedError, e.what());

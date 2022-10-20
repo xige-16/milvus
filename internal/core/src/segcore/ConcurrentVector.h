@@ -173,7 +173,11 @@ class ConcurrentVectorImpl : public VectorBase {
             return;
         }
         AssertInfo(chunks_.size() == 0, "no empty concurrent vector");
+        std::cout << "info fill chunk data, start emplace to at least, chunk size = " << chunks_.size() << ", element count = " << element_count << ", Dim = " << Dim << std::endl;
         chunks_.emplace_to_at_least(1, Dim * element_count);
+        std::cout << "info fill chunk data, emplace to at least done, chunk size = " << chunks_.size() << ", element count = " << element_count << ", Dim = " << Dim << std::endl;
+
+        std::cout << "info fill chunk data, start set data, element count = " << element_count << ", Dim = " << Dim << std::endl;
         set_data(0, static_cast<const Type*>(source), element_count);
     }
 
@@ -194,6 +198,9 @@ class ConcurrentVectorImpl : public VectorBase {
         // first partition:
         if (chunk_offset + element_count <= size_per_chunk_) {
             // only first
+            std::cout << "into set data, fill first partition, source = " << source << "chunk_id = " << chunk_id
+                      << ", chunk offset = " << chunk_offset << ", source _offset = " << source_offset
+                      << "element_count = " << element_count << ", size per chunk = " << size_per_chunk_ << std::endl;
             fill_chunk(chunk_id, chunk_offset, element_count, source, source_offset);
             return;
         }
@@ -212,9 +219,11 @@ class ConcurrentVectorImpl : public VectorBase {
             element_count -= size_per_chunk_;
             ++chunk_id;
         }
+        std::cout << "into set data, fill middle partition, chunk_id = " << chunk_id << std::endl;
 
         // the final
         if (element_count > 0) {
+            std::cout << "into set data, fill final partition, chunk_id = " << chunk_id << std::endl;
             fill_chunk(chunk_id, 0, element_count, source, source_offset);
         }
     }
@@ -277,7 +286,13 @@ class ConcurrentVectorImpl : public VectorBase {
         Assert(chunk_id < chunk_max_size);
         Chunk& chunk = chunks_[chunk_id];
         auto ptr = chunk.data();
+        std::cout << "into fill chunk, start copy, source = " << source << ", chunk_id = " << chunk_id
+                  << ", chunk_offset = " << chunk_offset << ", element count = " << element_count
+                  << ", source offset = " << source_offset << std::endl;
         std::copy_n(source + source_offset * Dim, element_count * Dim, ptr + chunk_offset * Dim);
+        std::cout << "into fill chunk, copy done, source = " << source << ", chunk_id = " << chunk_id
+                  << ", chunk_offset = " << chunk_offset << ", element count = " << element_count
+                  << ", source offset = " << source_offset << std::endl;
     }
 
     const ssize_t Dim;

@@ -195,9 +195,13 @@ SegmentSealedImpl::LoadFieldData(const LoadFieldDataInfo& info) {
         auto field_data = insert_record_.get_field_data_base(field_id);
         AssertInfo(field_data->empty(), "already exists");
 
+        std::cout << " start fill chunk data, field ID = " << field_id.get() << ", segmentID = " << get_segment_id()
+                  << std::endl;
         // insert data to insertRecord
         field_data->fill_chunk_data(size, info.field_data, field_meta);
         AssertInfo(field_data->num_chunk() == 1, "num chunk not equal to 1 for sealed segment");
+        std::cout << " fill chunk data end, field ID = " << field_id.get() << ", segmentID = " << get_segment_id()
+                  << std::endl;
 
         // set pks to offset
         if (schema_->get_primary_field_id() == field_id) {

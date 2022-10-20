@@ -168,6 +168,9 @@ func (ex *Executor) processMergeTask(mergeTask *LoadSegmentsTask) {
 	}
 
 	log.Info("load segments...")
+	if len(mergeTask.req.Infos) > 0 {
+		log.Debug("index info in req send to querynode", zap.Any("index", mergeTask.req.Infos[0].IndexInfos))
+	}
 	status, err := ex.cluster.LoadSegments(task.Context(), leader, mergeTask.req)
 	if err != nil {
 		log.Warn("failed to load segment, it may be a false failure", zap.Error(err))
@@ -269,6 +272,9 @@ func (ex *Executor) loadSegment(task *SegmentTask, step int) error {
 	req := packLoadSegmentRequest(task, action, schema, loadMeta, loadInfo, segment)
 	loadTask := NewLoadSegmentsTask(task, step, req)
 	ex.merger.Add(loadTask)
+	if len(loadTask.req.Infos) > 0 {
+		log.Debug("commited segment index load info", zap.Any("index", loadTask.req.Infos[0].IndexInfos))
+	}
 	log.Info("load segment task committed")
 	return nil
 }

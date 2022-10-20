@@ -233,7 +233,9 @@ func (loader *segmentLoader) loadFiles(ctx context.Context, segment *Segment,
 
 	if segment.getType() == segmentTypeSealed {
 		fieldID2IndexInfo := make(map[int64]*querypb.FieldIndexInfo)
+		log.Debug("index count when load segment", zap.Int("count", len(loadInfo.IndexInfos)))
 		for _, indexInfo := range loadInfo.IndexInfos {
+			log.Debug("index info in loadSegmentInfo", zap.Any("index", indexInfo))
 			if len(indexInfo.IndexFilePaths) > 0 {
 				fieldID := indexInfo.FieldID
 				fieldID2IndexInfo[fieldID] = indexInfo
@@ -244,9 +246,16 @@ func (loader *segmentLoader) loadFiles(ctx context.Context, segment *Segment,
 		fieldBinlogs := make([]*datapb.FieldBinlog, 0, len(loadInfo.BinlogPaths))
 
 		for _, fieldBinlog := range loadInfo.BinlogPaths {
+			log.Info("parse binlog path from load info",
+				zap.Int64("fieldID", fieldBinlog.FieldID),
+				zap.Any("binlog path", fieldBinlog.Binlogs))
+
 			fieldID := fieldBinlog.FieldID
 			// check num rows of data meta and index meta are consistent
 			if indexInfo, ok := fieldID2IndexInfo[fieldID]; ok {
+				log.Info("parse index info from load info",
+					zap.Int64("fieldID", fieldBinlog.FieldID),
+					zap.Any("index info", indexInfo))
 				if loadInfo.GetNumOfRows() != indexInfo.GetNumRows() {
 					err = fmt.Errorf("num rows of segment binlog file %d mismatch with num rows of index file %d",
 						loadInfo.GetNumOfRows(), indexInfo.GetNumRows())

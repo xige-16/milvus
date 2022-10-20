@@ -827,6 +827,10 @@ func (s *Segment) segmentLoadFieldData(fieldID int64, rowCount int64, data *sche
 		blob_size: C.uint64_t(len(dataBlob)),
 		row_count: C.int64_t(rowCount),
 	}
+	log.Info("start load field",
+		zap.Int64("fieldID", fieldID),
+		zap.Int64("row count", rowCount),
+		zap.Int64("segmentID", s.ID()))
 
 	var status C.CStatus
 	s.pool.Submit(func() (interface{}, error) {
