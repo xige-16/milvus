@@ -319,6 +319,14 @@ func (it *indexBuildTask) BuildDiskAnnIndex(ctx context.Context) error {
 	usedLocalSizeWhenBuild := int64(float64(it.fieldData.GetMemorySize())*2.6) + localUsedSize
 	maxUsedLocalSize := int64(float64(Params.IndexNodeCfg.DiskCapacityLimit) * Params.IndexNodeCfg.MaxDiskUsagePercentage)
 
+	log.Ctx(ctx).Debug("check local storage size with threshold value",
+		zap.Int64("localUsedSize", localUsedSize),
+		zap.Int64("DiskLimit", Params.IndexNodeCfg.DiskCapacityLimit),
+		zap.Float64("diskPercent", Params.IndexNodeCfg.MaxDiskUsagePercentage),
+		zap.Int("fieldDataSize", it.fieldData.GetMemorySize()),
+		zap.Int64("usedLocalSizeWhenBuild", usedLocalSizeWhenBuild),
+		zap.Int64("maxUsedLocalSize", maxUsedLocalSize))
+
 	if usedLocalSizeWhenBuild > maxUsedLocalSize {
 		log.Ctx(ctx).Error("IndexNode don't has enough disk size to build disk ann index",
 			zap.Int64("usedLocalSizeWhenBuild", usedLocalSizeWhenBuild),
