@@ -100,7 +100,9 @@ MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
             config, Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
     }
 
+    std::cout << " init minio chunk manager with bucket name " << storage_config.bucket_name << std::endl;
     if (!BucketExists(storage_config.bucket_name)) {
+        std::cout << "bucket not exist, start create bucket " << storage_config.bucket_name << std::endl;
         CreateBucket(storage_config.bucket_name);
     }
 

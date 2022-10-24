@@ -58,6 +58,7 @@ AppendIndexParam(CLoadIndexInfo c_load_index_info, const char* c_index_key, cons
         std::string index_key(c_index_key);
         std::string index_value(c_index_value);
         load_index_info->index_params[index_key] = index_value;
+        std::cout << "append index param , key = " << index_key << ", value = " << index_value << std::endl;
 
         auto status = CStatus();
         status.error_code = Success;
@@ -130,10 +131,13 @@ appendVecIndex(CLoadIndexInfo c_load_index_info, CBinarySet c_binary_set) {
         auto file_manager = milvus::storage::CreateFileManager(index_info.index_type, field_meta, index_meta,
                                                                load_index_info->storage_config);
 
+        std::cout << "create file manager done, segmentID = " << load_index_info->segment_id << std::endl;
         auto config = milvus::index::ParseConfigFromIndexParams(load_index_info->index_params);
         config["index_files"] = load_index_info->index_files;
 
+        std::cout << "create index with index info, segmentID = " << load_index_info->segment_id << std::endl;
         load_index_info->index = milvus::index::IndexFactory::GetInstance().CreateIndex(index_info, file_manager);
+        std::cout << "load binary set to index, segmentID = " << load_index_info->segment_id << ", config = " << config <<std::endl;
         load_index_info->index->Load(*binary_set, config);
         auto status = CStatus();
         status.error_code = Success;

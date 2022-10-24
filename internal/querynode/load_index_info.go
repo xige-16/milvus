@@ -75,6 +75,7 @@ func newLoadIndexInfo() (*LoadIndexInfo, error) {
 		useIAM:           C.bool(Params.MinioCfg.UseIAM),
 	}
 
+	log.Debug("crete load index info with bucket name ", zap.String("bucket name", Params.MinioCfg.BucketName))
 	status := C.NewLoadIndexInfo(&cLoadIndexInfo, storageConfig)
 	if err := HandleCStatus(&status, "NewLoadIndexInfo failed"); err != nil {
 		return nil, err
