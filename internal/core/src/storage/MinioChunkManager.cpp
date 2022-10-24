@@ -101,10 +101,10 @@ MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
     }
 
     std::cout << " init minio chunk manager with bucket name " << storage_config.bucket_name << std::endl;
-    if (!BucketExists(storage_config.bucket_name)) {
-        std::cout << "bucket not exist, start create bucket " << storage_config.bucket_name << std::endl;
-        CreateBucket(storage_config.bucket_name);
-    }
+//    if (!BucketExists(storage_config.bucket_name)) {
+//        std::cout << "bucket not exist, start create bucket " << storage_config.bucket_name << std::endl;
+//        CreateBucket(storage_config.bucket_name);
+//    }
 
     LOG_SEGCORE_INFO_C << "init MinioChunkManager with parameter[endpoint: '" << storage_config.address
                        << "', access_key:'" << storage_config.access_key_id << "', access_value:'"
