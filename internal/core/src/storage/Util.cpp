@@ -21,7 +21,7 @@
 #include "config/ConfigChunkManager.h"
 
 #ifdef BUILD_DISK_ANN
-#include "storage/DiskFileManagerImpl.h"
+//#include "storage/DiskFileManagerImpl.h"
 #endif
 
 namespace milvus::storage {
