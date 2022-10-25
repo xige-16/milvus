@@ -147,7 +147,7 @@ class FieldMeta {
     }
 
     FieldMeta(
-        const FieldName& name, FieldId id, DataType type, int64_t dim, std::optional<knowhere::MetricType> metric_type)
+        const FieldName& name, FieldId id, DataType type, int64_t dim, std::optional<std::string> metric_type)
         : name_(name), id_(id), type_(type), vector_info_(VectorInfo{dim, metric_type}) {
         Assert(is_vector());
     }
@@ -178,7 +178,7 @@ class FieldMeta {
         return string_info_->max_length;
     }
 
-    std::optional<knowhere::MetricType>
+    std::optional<std::string>
     get_metric_type() const {
         Assert(is_vector());
         Assert(vector_info_.has_value());
@@ -214,7 +214,7 @@ class FieldMeta {
  private:
     struct VectorInfo {
         int64_t dim_;
-        std::optional<knowhere::MetricType> metric_type_;
+        std::optional<std::string> metric_type_;
     };
     struct StringInfo {
         int64_t max_length;

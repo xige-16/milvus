@@ -28,7 +28,7 @@
 
 #include "MinioChunkManager.h"
 
-#include "log/Log.h"
+//#include "log/Log.h"
 
 #define THROWS3ERROR(FUNCTION)                                                                         \
     do {                                                                                               \
@@ -83,10 +83,10 @@ MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
         client_ = std::make_shared<Aws::S3::S3Client>(provider, config,
                                                       Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy::Never, false);
 
-        LOG_SEGCORE_INFO_C << "use iam mode, credentials{ access_id:"
+        std::cout << "use iam mode, credentials{ access_id:"
                            << provider->GetAWSCredentials().GetAWSAccessKeyId()
                            << " access_key:" << provider->GetAWSCredentials().GetAWSSecretKey()
-                           << " token:" << provider->GetAWSCredentials().GetSessionToken() << "}";
+                           << " token:" << provider->GetAWSCredentials().GetSessionToken() << "}" << std::endl;
     } else {
         client_ = std::make_shared<Aws::S3::S3Client>(
             Aws::Auth::AWSCredentials(ConvertToAwsString(storage_config.access_key_id),
@@ -101,10 +101,10 @@ MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
     //        CreateBucket(storage_config.bucket_name);
     //    }
 
-    LOG_SEGCORE_INFO_C << "init MinioChunkManager with parameter[endpoint: '" << storage_config.address
+    std::cout << "init MinioChunkManager with parameter[endpoint: '" << storage_config.address
                        << "', access_key:'" << storage_config.access_key_id << "', access_value:'"
                        << storage_config.access_key_value << "', default_bucket_name:'" << storage_config.bucket_name
-                       << "', use_secure:'" << std::boolalpha << storage_config.useSSL << "']";
+                       << "', use_secure:'" << std::boolalpha << storage_config.useSSL << "']" << std::endl;
 }
 
 MinioChunkManager::~MinioChunkManager() {

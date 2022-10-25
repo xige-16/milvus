@@ -14,12 +14,62 @@
 #include <vector>
 
 #include "storage/MinioChunkManager.h"
-#include "test_utils/indexbuilder_test_utils.h"
+//#include "test_utils/indexbuilder_test_utils.h"
+#include <yaml-cpp/yaml.h>
+#include <boost/filesystem.hpp>
 
 using namespace std;
 using namespace milvus;
 using namespace milvus::storage;
 using namespace boost::filesystem;
+using milvus::storage::StorageConfig;
+
+bool
+find_file(const path& dir, const std::string& file_name, path& path_found) {
+    const recursive_directory_iterator end;
+    boost::system::error_code err;
+    auto iter = recursive_directory_iterator(dir, err);
+    while (iter != end) {
+        try {
+            if ((*iter).path().filename() == file_name) {
+                path_found = (*iter).path();
+                return true;
+            }
+            iter++;
+        } catch (filesystem_error& e) {
+        } catch (std::exception& e) {
+            // ignore error
+        }
+    }
+    return false;
+}
+
+StorageConfig
+get_default_storage_config() {
+    char testPath[100];
+    auto pwd = std::string(getcwd(testPath, sizeof(testPath)));
+    path filepath;
+    auto currentPath = path(pwd);
+    while (!find_file(currentPath, "milvus.yaml", filepath)) {
+        currentPath = currentPath.append("../");
+    }
+    auto configPath = filepath.string();
+    YAML::Node config;
+    config = YAML::LoadFile(configPath);
+    auto minioConfig = config["minio"];
+    auto address = minioConfig["address"].as<std::string>();
+    auto port = minioConfig["port"].as<std::string>();
+    auto endpoint = address + ":" + port;
+    auto accessKey = minioConfig["accessKeyID"].as<std::string>();
+    auto accessValue = minioConfig["secretAccessKey"].as<std::string>();
+    auto rootPath = minioConfig["rootPath"].as<std::string>();
+    auto useSSL = minioConfig["useSSL"].as<bool>();
+    auto useIam = minioConfig["useIAM"].as<bool>();
+    auto iamEndPoint = minioConfig["iamEndpoint"].as<std::string>();
+    auto bucketName = minioConfig["bucketName"].as<std::string>();
+
+    return StorageConfig{endpoint, bucketName, accessKey, accessValue, rootPath, "minio", iamEndPoint, useSSL, useIam};
+}
 
 class MinioChunkManagerTest : public testing::Test {
  public:

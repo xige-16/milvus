@@ -39,8 +39,8 @@ if(BUILD_DISK_ANN STREQUAL "ON")
     set(STORAGE_FILES
         ${STORAGE_FILES}
         LocalChunkManager.cpp
-        MinioChunkManager.cpp
-        DiskFileManagerImpl.cpp)
+        MinioChunkManager.cpp)
+#        DiskFileManagerImpl.cpp)
 endif()
 
 add_library(milvus_storage SHARED ${STORAGE_FILES})
@@ -48,9 +48,9 @@ add_library(milvus_storage SHARED ${STORAGE_FILES})
 find_package(Boost REQUIRED COMPONENTS filesystem)
 
 if(BUILD_DISK_ANN STREQUAL "ON")
-    target_link_libraries(milvus_storage PUBLIC milvus_common Boost::filesystem aws-cpp-sdk-s3 pthread)
+    target_link_libraries(milvus_storage PUBLIC milvus_log milvus_common Boost::filesystem aws-cpp-sdk-s3 pthread)
 else()
-    target_link_libraries(milvus_storage PUBLIC milvus_common Boost::filesystem pthread)
+    target_link_libraries(milvus_storage PUBLIC milvus_log milvus_common Boost::filesystem pthread)
 endif()
 
 if(NOT CMAKE_INSTALL_PREFIX)

@@ -20,7 +20,7 @@
 #include <google/protobuf/text_format.h>
 
 #include "Schema.h"
-#include "SystemProperty.h"
+//#include "SystemProperty.h"
 
 namespace milvus {
 
@@ -38,52 +38,52 @@ RepeatedKeyValToMap(const google::protobuf::RepeatedPtrField<proto::common::KeyV
 std::shared_ptr<Schema>
 Schema::ParseFrom(const milvus::proto::schema::CollectionSchema& schema_proto) {
     auto schema = std::make_shared<Schema>();
-    // schema->set_auto_id(schema_proto.autoid());
-
-    // NOTE: only two system
-
-    for (const milvus::proto::schema::FieldSchema& child : schema_proto.fields()) {
-        auto field_id = FieldId(child.fieldid());
-        auto name = FieldName(child.name());
-
-        if (field_id.get() < 100) {
-            // system field id
-            auto is_system = SystemProperty::Instance().SystemFieldVerify(name, field_id);
-            AssertInfo(is_system,
-                       "invalid system type: name(" + name.get() + "), id(" + std::to_string(field_id.get()) + ")");
-            continue;
-        }
-
-        auto data_type = DataType(child.data_type());
-
-        if (datatype_is_vector(data_type)) {
-            auto type_map = RepeatedKeyValToMap(child.type_params());
-            auto index_map = RepeatedKeyValToMap(child.index_params());
-
-            AssertInfo(type_map.count("dim"), "dim not found");
-            auto dim = boost::lexical_cast<int64_t>(type_map.at("dim"));
-            if (!index_map.count("metric_type")) {
-                schema->AddField(name, field_id, data_type, dim, std::nullopt);
-            } else {
-                auto metric_type = index_map.at("metric_type");
-                schema->AddField(name, field_id, data_type, dim, metric_type);
-            }
-        } else if (datatype_is_string(data_type)) {
-            auto type_map = RepeatedKeyValToMap(child.type_params());
-            AssertInfo(type_map.count(MAX_LENGTH), "max_length not found");
-            auto max_len = boost::lexical_cast<int64_t>(type_map.at(MAX_LENGTH));
-            schema->AddField(name, field_id, data_type, max_len);
-        } else {
-            schema->AddField(name, field_id, data_type);
-        }
-
-        if (child.is_primary_key()) {
-            AssertInfo(!schema->get_primary_field_id().has_value(), "repetitive primary key");
-            schema->set_primary_field_id(field_id);
-        }
-    }
-
-    AssertInfo(schema->get_primary_field_id().has_value(), "primary key should be specified");
+//    // schema->set_auto_id(schema_proto.autoid());
+//
+//    // NOTE: only two system
+//
+//    for (const milvus::proto::schema::FieldSchema& child : schema_proto.fields()) {
+//        auto field_id = FieldId(child.fieldid());
+//        auto name = FieldName(child.name());
+//
+//        if (field_id.get() < 100) {
+//            // system field id
+//            auto is_system = SystemProperty::Instance().SystemFieldVerify(name, field_id);
+//            AssertInfo(is_system,
+//                       "invalid system type: name(" + name.get() + "), id(" + std::to_string(field_id.get()) + ")");
+//            continue;
+//        }
+//
+//        auto data_type = DataType(child.data_type());
+//
+//        if (datatype_is_vector(data_type)) {
+//            auto type_map = RepeatedKeyValToMap(child.type_params());
+//            auto index_map = RepeatedKeyValToMap(child.index_params());
+//
+//            AssertInfo(type_map.count("dim"), "dim not found");
+//            auto dim = boost::lexical_cast<int64_t>(type_map.at("dim"));
+//            if (!index_map.count("metric_type")) {
+//                schema->AddField(name, field_id, data_type, dim, std::nullopt);
+//            } else {
+//                auto metric_type = index_map.at("metric_type");
+//                schema->AddField(name, field_id, data_type, dim, metric_type);
+//            }
+//        } else if (datatype_is_string(data_type)) {
+//            auto type_map = RepeatedKeyValToMap(child.type_params());
+//            AssertInfo(type_map.count(MAX_LENGTH), "max_length not found");
+//            auto max_len = boost::lexical_cast<int64_t>(type_map.at(MAX_LENGTH));
+//            schema->AddField(name, field_id, data_type, max_len);
+//        } else {
+//            schema->AddField(name, field_id, data_type);
+//        }
+//
+//        if (child.is_primary_key()) {
+//            AssertInfo(!schema->get_primary_field_id().has_value(), "repetitive primary key");
+//            schema->set_primary_field_id(field_id);
+//        }
+//    }
+//
+//    AssertInfo(schema->get_primary_field_id().has_value(), "primary key should be specified");
 
     return schema;
 }

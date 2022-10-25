@@ -75,13 +75,13 @@ is_in_list(const T& t, std::function<std::vector<T>()> list_func) {
     return std::find(l.begin(), l.end(), t) != l.end();
 }
 
-bool
-is_in_disk_list(const IndexType& index_type);
-
-FileManagerImplPtr
-CreateFileManager(IndexType index_type,
-                  const FieldDataMeta& field_meta,
-                  const IndexMeta& index_meta,
-                  const StorageConfig& storage_config);
+//bool
+//is_in_disk_list(const IndexType& index_type);
+//
+//FileManagerImplPtr
+//CreateFileManager(IndexType index_type,
+//                  const FieldDataMeta& field_meta,
+//                  const IndexMeta& index_meta,
+//                  const StorageConfig& storage_config);
 
 }  // namespace milvus::storage

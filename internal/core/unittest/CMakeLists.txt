@@ -17,75 +17,75 @@ add_definitions(-DMILVUS_TEST_SEGCORE_YAML_PATH="${CMAKE_SOURCE_DIR}/unittest/te
 # TODO: better to use ls/find pattern
 set(MILVUS_TEST_FILES
         init_gtest.cpp
-        test_bf.cpp
-        test_binary.cpp
-        test_bitmap.cpp
-        test_bool_index.cpp
-        test_common.cpp
-        test_concurrent_vector.cpp
-        test_conf_adapter_mgr.cpp
-        test_c_api.cpp
-        test_expr.cpp
-        test_growing.cpp
-        test_indexing.cpp
-        test_index_c_api.cpp
-        test_index_wrapper.cpp
-        test_init.cpp
-        test_parquet_c.cpp
-        test_plan_proto.cpp
-        test_query.cpp
-        test_reduce.cpp
-        test_reduce_c.cpp
-        test_relational.cpp
-        test_retrieve.cpp
-        test_scalar_index.cpp
-        test_sealed.cpp
-        test_segcore.cpp
-        test_similarity_corelation.cpp
-        test_span.cpp
-        test_string_expr.cpp
-        test_timestamp_index.cpp
-        test_utils.cpp
-        test_data_codec.cpp
+#        test_bf.cpp
+#        test_binary.cpp
+#        test_bitmap.cpp
+#        test_bool_index.cpp
+#        test_common.cpp
+#        test_concurrent_vector.cpp
+#        test_conf_adapter_mgr.cpp
+#        test_c_api.cpp
+#        test_expr.cpp
+#        test_growing.cpp
+#        test_indexing.cpp
+#        test_index_c_api.cpp
+#        test_index_wrapper.cpp
+#        test_init.cpp
+#        test_parquet_c.cpp
+#        test_plan_proto.cpp
+#        test_query.cpp
+#        test_reduce.cpp
+#        test_reduce_c.cpp
+#        test_relational.cpp
+#        test_retrieve.cpp
+#        test_scalar_index.cpp
+#        test_sealed.cpp
+#        test_segcore.cpp
+#        test_similarity_corelation.cpp
+#        test_span.cpp
+#        test_string_expr.cpp
+#        test_timestamp_index.cpp
+#        test_utils.cpp
+#        test_data_codec.cpp
         )
 
 if ( BUILD_DISK_ANN STREQUAL "ON" )
     set(MILVUS_TEST_FILES
             ${MILVUS_TEST_FILES}
-            #test_minio_chunk_manager.cpp
+            test_minio_chunk_manager.cpp
             #test_disk_file_manager_test.cpp
-            test_local_chunk_manager.cpp
+#            test_local_chunk_manager.cpp
             )
 endif()
 
 if (LINUX OR APPLE)
     set(MILVUS_TEST_FILES
             ${MILVUS_TEST_FILES}
-            test_scalar_index_creator.cpp
-            test_string_index.cpp
+#            test_scalar_index_creator.cpp
+#            test_string_index.cpp
             )
 endif()
 
-if (LINUX)
-    # check if memory leak exists in index builder
-    set(INDEX_BUILDER_TEST_FILES
-            test_index_wrapper.cpp
-            test_scalar_index_creator.cpp
-            test_index_c_api.cpp
-            )
-
-    add_executable(index_builder_test
-            ${INDEX_BUILDER_TEST_FILES}
-            )
-
-    target_link_libraries(index_builder_test
-            gtest
-            gtest_main
-            milvus_segcore
-            milvus_indexbuilder
-            )
-    install(TARGETS index_builder_test DESTINATION unittest)
-endif()
+#if (LINUX)
+#    # check if memory leak exists in index builder
+##    set(INDEX_BUILDER_TEST_FILES
+##            test_index_wrapper.cpp
+##            test_scalar_index_creator.cpp
+##            test_index_c_api.cpp
+##            )
+#
+##    add_executable(index_builder_test
+##            ${INDEX_BUILDER_TEST_FILES}
+##            )
+#
+#    target_link_libraries(index_builder_test
+#            gtest
+#            gtest_main
+#            milvus_segcore
+#            milvus_indexbuilder
+#            )
+#    install(TARGETS index_builder_test DESTINATION unittest)
+#endif()
 
 add_executable(all_tests
         ${MILVUS_TEST_FILES}
@@ -93,13 +93,15 @@ add_executable(all_tests
 
 target_link_libraries(all_tests
         gtest
-        milvus_segcore
-        milvus_indexbuilder
+        milvus_log
+        milvus_storage
+#        milvus_segcore
+#        milvus_indexbuilder
         pthread
         )
 
 install(TARGETS all_tests DESTINATION unittest)
 
-if (LINUX)
-    add_subdirectory(bench)
-endif ()
+#if (LINUX)
+#    add_subdirectory(bench)
+#endif ()

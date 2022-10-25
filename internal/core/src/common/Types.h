@@ -30,10 +30,10 @@
 #include <NamedType/named_type.hpp>
 #include <variant>
 
-#include "knowhere/index/vector_index/helpers/IndexParameter.h"
-#include <knowhere/index/IndexType.h>
-#include "knowhere/common/BinarySet.h"
-#include "knowhere/common/Dataset.h"
+//#include "knowhere/index/vector_index/helpers/IndexParameter.h"
+//#include <knowhere/index/IndexType.h>
+//#include "knowhere/common/BinarySet.h"
+//#include "knowhere/common/Dataset.h"
 #include "pb/schema.pb.h"
 #include "pb/segcore.pb.h"
 #include "pb/plan.pb.h"
@@ -112,17 +112,17 @@ using BitsetTypeOpt = std::optional<BitsetType>;
 template <typename Type>
 using FixedVector = boost::container::vector<Type>;
 
-using Config = nlohmann::json;
+//using Config = nlohmann::json;
 using TargetBitmap = boost::dynamic_bitset<>;
 using TargetBitmapPtr = std::unique_ptr<TargetBitmap>;
 
-using BinaryPtr = knowhere::BinaryPtr;
-using BinarySet = knowhere::BinarySet;
-using DatasetPtr = knowhere::DatasetPtr;
-using MetricType = knowhere::MetricType;
-// TODO :: type define milvus index type(vector index type and scalar index type)
-using IndexType = knowhere::IndexType;
-// TODO :: type define milvus index mode, add transfer func from milvus index mode to knowhere index mode
-using IndexMode = knowhere::IndexMode;
+//using BinaryPtr = knowhere::BinaryPtr;
+//using BinarySet = knowhere::BinarySet;
+//using DatasetPtr = knowhere::DatasetPtr;
+//using MetricType = knowhere::MetricType;
+//// TODO :: type define milvus index type(vector index type and scalar index type)
+//using IndexType = knowhere::IndexType;
+//// TODO :: type define milvus index mode, add transfer func from milvus index mode to knowhere index mode
+//using IndexMode = knowhere::IndexMode;
 
 }  // namespace milvus

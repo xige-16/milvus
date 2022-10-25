@@ -38,7 +38,7 @@ message( STATUS "Thirdparty downloaded file path: ${THIRDPARTY_DOWNLOAD_PATH}" )
 set( THREADS_PREFER_PTHREAD_FLAG ON )
 find_package( Threads REQUIRED )
 
-add_subdirectory( knowhere )
+#add_subdirectory( knowhere )
 
 # ****************************** Thirdparty googletest ***************************************
 if ( MILVUS_BUILD_TESTS)
@@ -62,7 +62,7 @@ endif()
 add_subdirectory( protobuf )
 add_subdirectory( boost_ext )
 add_subdirectory( arrow )
-add_subdirectory( rocksdb )
+#add_subdirectory( rocksdb )
 
 # ******************************* Thirdparty aws sdk ********************************
 if ( LINUX AND BUILD_DISK_ANN STREQUAL "ON" )
@@ -72,7 +72,7 @@ endif()
 # ******************************* Thirdparty marisa ********************************
 # TODO: support win.
 if ( LINUX OR APPLE)
-    add_subdirectory( marisa )
+#    add_subdirectory( marisa )
 endif()
 
 # ******************************* Thirdparty jemalloc ********************************

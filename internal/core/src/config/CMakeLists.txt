@@ -21,7 +21,7 @@ if ( EMBEDDED_MILVUS )
 endif()
 
 set(CONFIG_SRC
-        ConfigKnowhere.cpp
+#        ConfigKnowhere.cpp
         ConfigChunkManager.cpp
         )
 
@@ -29,5 +29,5 @@ add_library(milvus_config STATIC ${CONFIG_SRC})
 
 target_link_libraries(milvus_config
         milvus_exceptions
-        knowhere
+#        knowhere
         )

@@ -14,6 +14,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include <cmath>
 #include "storage/Util.h"
 #include "exceptions/EasyAssert.h"
 #include "common/Consts.h"
@@ -346,32 +347,32 @@ GetSegmentRawDataPathPrefix(int64_t segment_id) {
            std::to_string(segment_id);
 }
 
-std::vector<IndexType>
-DISK_LIST() {
-    static std::vector<IndexType> ret{
-        knowhere::IndexEnum::INDEX_DISKANN,
-    };
-    return ret;
-}
+//std::vector<IndexType>
+//DISK_LIST() {
+//    static std::vector<IndexType> ret{
+//        knowhere::IndexEnum::INDEX_DISKANN,
+//    };
+//    return ret;
+//}
 
-bool
-is_in_disk_list(const IndexType& index_type) {
-    return is_in_list<IndexType>(index_type, DISK_LIST);
-}
-
-FileManagerImplPtr
-CreateFileManager(IndexType index_type,
-                  const FieldDataMeta& field_meta,
-                  const IndexMeta& index_meta,
-                  const StorageConfig& storage_config) {
-    // TODO :: switch case index type to create file manager
-#ifdef BUILD_DISK_ANN
-    if (is_in_disk_list(index_type)) {
-        return std::make_shared<DiskFileManagerImpl>(field_meta, index_meta, storage_config);
-    }
-#endif
-
-    return nullptr;
-}
+//bool
+//is_in_disk_list(const IndexType& index_type) {
+//    return is_in_list<IndexType>(index_type, DISK_LIST);
+//}
+//
+//FileManagerImplPtr
+//CreateFileManager(IndexType index_type,
+//                  const FieldDataMeta& field_meta,
+//                  const IndexMeta& index_meta,
+//                  const StorageConfig& storage_config) {
+//    // TODO :: switch case index type to create file manager
+//#ifdef BUILD_DISK_ANN
+//    if (is_in_disk_list(index_type)) {
+//        return std::make_shared<DiskFileManagerImpl>(field_meta, index_meta, storage_config);
+//    }
+//#endif
+//
+//    return nullptr;
+//}
 
 }  // namespace milvus::storage
