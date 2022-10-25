@@ -42,8 +42,6 @@
 #define S3NoSuchBucket "NoSuchBucket"
 namespace milvus::storage {
 
-std::atomic<size_t> MinioChunkManager::init_count_(0);
-
 /**
  * @brief convert std::string to Aws::String
  * because Aws has String type internally
@@ -69,10 +67,7 @@ ConvertFromAwsString(const Aws::String& aws_str) {
 
 MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
     : default_bucket_name_(storage_config.bucket_name) {
-    const size_t initCount = init_count_++;
-    if (initCount == 0) {
-        Aws::InitAPI(sdk_options_);
-    }
+    Aws::InitAPI(sdk_options_);
     Aws::Client::ClientConfiguration config;
     config.endpointOverride = ConvertToAwsString(storage_config.address);
 
@@ -114,10 +109,7 @@ MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
 }
 
 MinioChunkManager::~MinioChunkManager() {
-    const size_t initCount = --init_count_;
-    if (initCount == 0) {
-        Aws::ShutdownAPI(sdk_options_);
-    }
+    Aws::ShutdownAPI(sdk_options_);
     client_.reset();
 }
 
