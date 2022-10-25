@@ -20,7 +20,6 @@
 #include <aws/core/auth/STSCredentialsProvider.h>
 #include <aws/s3/model/CreateBucketRequest.h>
 #include <aws/s3/model/DeleteBucketRequest.h>
-#include <aws/s3/model/HeadBucketRequest.h>
 #include <aws/s3/model/DeleteObjectRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
 #include <aws/s3/model/ListObjectsRequest.h>
@@ -150,31 +149,17 @@ MinioChunkManager::Write(const std::string& filepath, void* buf, uint64_t size) 
 
 bool
 MinioChunkManager::BucketExists(const std::string& bucket_name) {
-    // auto outcome = client_->ListBuckets();
-
-    // if (!outcome.IsSuccess()) {
-    //     THROWS3ERROR(BucketExists);
-    // }
-    // for (auto&& b : outcome.GetResult().GetBuckets()) {
-    //     if (ConvertFromAwsString(b.GetName()) == bucket_name) {
-    //         return true;
-    //     }
-    // }
-    Aws::S3::Model::HeadBucketRequest request;
-    request.SetBucket(bucket_name.c_str());
-
-    auto outcome = client_->HeadBucket(request);
+    auto outcome = client_->ListBuckets();
 
     if (!outcome.IsSuccess()) {
-        auto error = outcome.GetError();
-        if (!error.GetExceptionName().empty()) {
-            std::stringstream err_msg;
-            err_msg << "Error: BucketExists: " << error.GetExceptionName() + " - " + error.GetMessage();
-            throw S3ErrorException(err_msg.str());
-        }
-        return false;
+        THROWS3ERROR(BucketExists);
     }
-    return true;
+    for (auto&& b : outcome.GetResult().GetBuckets()) {
+        if (ConvertFromAwsString(b.GetName()) == bucket_name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::vector<std::string>
