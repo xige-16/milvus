@@ -87,52 +87,22 @@ class MinioChunkManagerTest : public testing::Test {
     MinioChunkManagerPtr chunk_manager_;
 };
 
-TEST_F(MinioChunkManagerTest, BucketPositive) {
-    string testBucketName = "test-bucket";
-    chunk_manager_->SetBucketName(testBucketName);
-    bool exist = chunk_manager_->BucketExists(testBucketName);
-    EXPECT_EQ(exist, false);
-    chunk_manager_->CreateBucket(testBucketName);
-    exist = chunk_manager_->BucketExists(testBucketName);
-    EXPECT_EQ(exist, true);
-    chunk_manager_->DeleteBucket(testBucketName);
-}
-
-TEST_F(MinioChunkManagerTest, BucketNegtive) {
-    string testBucketName = "test-bucket-ng";
-    chunk_manager_->SetBucketName(testBucketName);
-    chunk_manager_->DeleteBucket(testBucketName);
-
-    // create already exist bucket
-    chunk_manager_->CreateBucket(testBucketName);
-    try {
-        chunk_manager_->CreateBucket(testBucketName);
-    } catch (S3ErrorException& e) {
-        EXPECT_TRUE(std::string(e.what()).find("BucketAlreadyOwnedByYou") != string::npos);
-    }
-    chunk_manager_->DeleteBucket(testBucketName);
-}
-
 TEST_F(MinioChunkManagerTest, ObjectExist) {
-    string testBucketName = "test-objexist";
+    string testBucketName = chunk_manager_->GetBucketName();
     string objPath = "1/3";
-    chunk_manager_->SetBucketName(testBucketName);
+//    chunk_manager_->SetBucketName(testBucketName);
     if (!chunk_manager_->BucketExists(testBucketName)) {
-        chunk_manager_->CreateBucket(testBucketName);
+        std::cout << "bucket not exist " << testBucketName << std::endl;
     }
 
     bool exist = chunk_manager_->Exist(objPath);
     EXPECT_EQ(exist, false);
-    chunk_manager_->DeleteBucket(testBucketName);
+//    chunk_manager_->DeleteBucket(testBucketName);
 }
 
 TEST_F(MinioChunkManagerTest, WritePositive) {
-    string testBucketName = "test-write";
-    chunk_manager_->SetBucketName(testBucketName);
-    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
-
-    if (!chunk_manager_->BucketExists(testBucketName)) {
-        chunk_manager_->CreateBucket(testBucketName);
+    if (!chunk_manager_->BucketExists(chunk_manager_->GetBucketName())) {
+        std::cout << "bucket not exist" << chunk_manager_->GetBucketName() << std::endl;
     }
     uint8_t data[5] = {0x17, 0x32, 0x45, 0x34, 0x23};
     string path = "1/3/5";
@@ -156,16 +126,14 @@ TEST_F(MinioChunkManagerTest, WritePositive) {
     delete[] bigdata;
 
     chunk_manager_->Remove(path);
-    chunk_manager_->DeleteBucket(testBucketName);
+//    chunk_manager_->DeleteBucket(testBucketName);
 }
 
 TEST_F(MinioChunkManagerTest, ReadPositive) {
-    string testBucketName = "test-read";
-    chunk_manager_->SetBucketName(testBucketName);
-    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
+    string testBucketName = chunk_manager_->GetBucketName();
 
     if (!chunk_manager_->BucketExists(testBucketName)) {
-        chunk_manager_->CreateBucket(testBucketName);
+        std::cout << "bucket not exist" << chunk_manager_->GetBucketName() << std::endl;
     }
     uint8_t data[5] = {0x17, 0x32, 0x45, 0x34, 0x23};
     string path = "1/4/6";
@@ -205,66 +173,66 @@ TEST_F(MinioChunkManagerTest, ReadPositive) {
     EXPECT_EQ(readdata[4], 0x23);
 
     chunk_manager_->Remove(path);
-    chunk_manager_->DeleteBucket(testBucketName);
+//    chunk_manager_->DeleteBucket(testBucketName);
 }
-
-TEST_F(MinioChunkManagerTest, RemovePositive) {
-    string testBucketName = "test-remove";
-    chunk_manager_->SetBucketName(testBucketName);
-    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
-
-    if (!chunk_manager_->BucketExists(testBucketName)) {
-        chunk_manager_->CreateBucket(testBucketName);
-    }
-    uint8_t data[5] = {0x17, 0x32, 0x45, 0x34, 0x23};
-    string path = "1/7/8";
-    chunk_manager_->Write(path, data, sizeof(data));
-
-    bool exist = chunk_manager_->Exist(path);
-    EXPECT_EQ(exist, true);
-
-    chunk_manager_->Remove(path);
-
-    exist = chunk_manager_->Exist(path);
-    EXPECT_EQ(exist, false);
-
-    chunk_manager_->DeleteBucket(testBucketName);
-}
-
-TEST_F(MinioChunkManagerTest, ListWithPrefixPositive) {
-    string testBucketName = "test-listprefix";
-    chunk_manager_->SetBucketName(testBucketName);
-    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
-
-    if (!chunk_manager_->BucketExists(testBucketName)) {
-        chunk_manager_->CreateBucket(testBucketName);
-    }
-
-    string path1 = "1/7/8";
-    string path2 = "1/7/4";
-    string path3 = "1/4/8";
-    uint8_t data[5] = {0x17, 0x32, 0x45, 0x34, 0x23};
-    chunk_manager_->Write(path1, data, sizeof(data));
-    chunk_manager_->Write(path2, data, sizeof(data));
-    chunk_manager_->Write(path3, data, sizeof(data));
-
-    vector<string> objs = chunk_manager_->ListWithPrefix("1/7");
-    EXPECT_EQ(objs.size(), 2);
-    std::sort(objs.begin(), objs.end());
-    EXPECT_EQ(objs[0], "1/7/4");
-    EXPECT_EQ(objs[1], "1/7/8");
-
-    objs = chunk_manager_->ListWithPrefix("//1/7");
-    EXPECT_EQ(objs.size(), 2);
-
-    objs = chunk_manager_->ListWithPrefix("1");
-    EXPECT_EQ(objs.size(), 3);
-    std::sort(objs.begin(), objs.end());
-    EXPECT_EQ(objs[0], "1/4/8");
-    EXPECT_EQ(objs[1], "1/7/4");
-
-    chunk_manager_->Remove(path1);
-    chunk_manager_->Remove(path2);
-    chunk_manager_->Remove(path3);
-    chunk_manager_->DeleteBucket(testBucketName);
-}
+//
+//TEST_F(MinioChunkManagerTest, RemovePositive) {
+//    string testBucketName = "test-remove";
+//    chunk_manager_->SetBucketName(testBucketName);
+//    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
+//
+//    if (!chunk_manager_->BucketExists(testBucketName)) {
+//        chunk_manager_->CreateBucket(testBucketName);
+//    }
+//    uint8_t data[5] = {0x17, 0x32, 0x45, 0x34, 0x23};
+//    string path = "1/7/8";
+//    chunk_manager_->Write(path, data, sizeof(data));
+//
+//    bool exist = chunk_manager_->Exist(path);
+//    EXPECT_EQ(exist, true);
+//
+//    chunk_manager_->Remove(path);
+//
+//    exist = chunk_manager_->Exist(path);
+//    EXPECT_EQ(exist, false);
+//
+//    chunk_manager_->DeleteBucket(testBucketName);
+//}
+//
+//TEST_F(MinioChunkManagerTest, ListWithPrefixPositive) {
+//    string testBucketName = "test-listprefix";
+//    chunk_manager_->SetBucketName(testBucketName);
+//    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
+//
+//    if (!chunk_manager_->BucketExists(testBucketName)) {
+//        chunk_manager_->CreateBucket(testBucketName);
+//    }
+//
+//    string path1 = "1/7/8";
+//    string path2 = "1/7/4";
+//    string path3 = "1/4/8";
+//    uint8_t data[5] = {0x17, 0x32, 0x45, 0x34, 0x23};
+//    chunk_manager_->Write(path1, data, sizeof(data));
+//    chunk_manager_->Write(path2, data, sizeof(data));
+//    chunk_manager_->Write(path3, data, sizeof(data));
+//
+//    vector<string> objs = chunk_manager_->ListWithPrefix("1/7");
+//    EXPECT_EQ(objs.size(), 2);
+//    std::sort(objs.begin(), objs.end());
+//    EXPECT_EQ(objs[0], "1/7/4");
+//    EXPECT_EQ(objs[1], "1/7/8");
+//
+//    objs = chunk_manager_->ListWithPrefix("//1/7");
+//    EXPECT_EQ(objs.size(), 2);
+//
+//    objs = chunk_manager_->ListWithPrefix("1");
+//    EXPECT_EQ(objs.size(), 3);
+//    std::sort(objs.begin(), objs.end());
+//    EXPECT_EQ(objs[0], "1/4/8");
+//    EXPECT_EQ(objs[1], "1/7/4");
+//
+//    chunk_manager_->Remove(path1);
+//    chunk_manager_->Remove(path2);
+//    chunk_manager_->Remove(path3);
+//    chunk_manager_->DeleteBucket(testBucketName);
+//}
