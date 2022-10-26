@@ -66,6 +66,16 @@ ConvertFromAwsString(const Aws::String& aws_str) {
 
 MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
     : default_bucket_name_(storage_config.bucket_name) {
+    std::cout << "init minio chunk manager with storage config, "
+    << "address = " << storage_config.address
+    << ", bucket name = " << storage_config.bucket_name
+    << ", access key = " << storage_config.access_key_id
+    << ", access value = " << storage_config.access_key_value
+    << ", root path = " << storage_config.remote_root_path
+    << ", storage type = " << storage_config.storage_type
+    << ", iam point = " << storage_config.iam_endpoint
+    << ", useSSL = " << storage_config.useSSL
+    << ", useIAM = " << storage_config.useIAM << std::endl;
     Aws::InitAPI(sdk_options_);
     Aws::Client::ClientConfiguration config;
     config.endpointOverride = ConvertToAwsString(storage_config.address);
