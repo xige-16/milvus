@@ -273,9 +273,9 @@ func (loader *segmentLoader) loadFiles(ctx context.Context, segment *Segment,
 		if err := loader.loadIndexedFieldData(ctx, segment, indexedFieldInfos); err != nil {
 			return err
 		}
-		if err := loader.loadSealedSegmentFields(ctx, segment, fieldBinlogs, loadInfo); err != nil {
-			return err
-		}
+		// if err := loader.loadSealedSegmentFields(ctx, segment, fieldBinlogs, loadInfo); err != nil {
+		// 	return err
+		// }
 	} else {
 		if err := loader.loadGrowingSegmentFields(ctx, segment, loadInfo.BinlogPaths); err != nil {
 			return err
