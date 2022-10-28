@@ -22,6 +22,7 @@
 #include "config/ConfigKnowhere.h"
 #include "storage/Util.h"
 #include "common/Utils.h"
+#include "log/Log.h"
 
 namespace milvus::index {
 
@@ -88,6 +89,14 @@ VectorDiskAnnIndex<T>::BuildWithDataset(const DatasetPtr& dataset, const Config&
 
     knowhere::Config cfg;
     knowhere::DiskANNBuildConfig::Set(cfg, build_config);
+
+    LOG_SEGCORE_INFO_C << "build disk index with build config, num row: " << num
+                       << "', max degree:'" << build_config.max_degree
+                       << "', search_list_size:'" << build_config.search_list_size
+                       << "', pq_code_budget_gb:'" << build_config.pq_code_budget_gb
+                       << "', build_dram_budget_gb:'" << build_config.build_dram_budget_gb
+                       << "', num_threads:'" << build_config.num_threads
+                       << "', disk_pq_dims:'" << build_config.disk_pq_dims;
 
     index_->BuildAll(nullptr, cfg);
 
