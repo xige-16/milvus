@@ -154,7 +154,12 @@ DiskFileManagerImpl::CacheIndexToDisk(std::vector<std::string> remote_files) {
             local_chunk_manager.Write(local_index_file_name, offset, const_cast<uint8_t*>(index_payload->raw_data),
                                       index_size);
             offset += index_size;
+
+//            local_chunk_manager.Write(local_index_file_name, offset, buf.get(), fileSize);
+//            offset += fileSize;
         }
+
+        std::cout << "cache disk index file to disk, file name = " << local_index_file_name << ", file size = " << offset << std::endl;
         local_paths_.emplace_back(local_index_file_name);
     }
 }

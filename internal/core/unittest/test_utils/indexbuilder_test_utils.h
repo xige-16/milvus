@@ -201,7 +201,10 @@ generate_load_conf(const milvus::IndexType& index_type, const milvus::MetricType
         return knowhere::Config{
             {knowhere::meta::METRIC_TYPE, metric_type},
             {knowhere::meta::DIM, std::to_string(DIM)},
-            {milvus::index::DISK_ANN_SEARCH_CACHE_BUDGET, std::to_string(0.0002)},
+            {milvus::index::DISK_ANN_LOAD_THREAD_NUM, std::to_string(16)},
+//            {milvus::index::DISK_ANN_SEARCH_CACHE_BUDGET, std::to_string(0.17)},
+            {milvus::index::DISK_ANN_SEARCH_CACHE_BUDGET, std::to_string(0.126)},
+//            {milvus::index::DISK_ANN_SEARCH_CACHE_BUDGET, std::to_string(0.0189)},
         };
     }
     return knowhere::Config();

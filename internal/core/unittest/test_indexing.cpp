@@ -15,6 +15,9 @@
 #include <random>
 #include <string>
 #include <vector>
+#include <unistd.h>
+#include <fstream>
+#include <string>
 
 #include "faiss/utils/distances.h"
 #include "query/SearchBruteForce.h"
@@ -348,19 +351,21 @@ class IndexTest : public ::testing::TestWithParam<Param> {
 INSTANTIATE_TEST_CASE_P(
     IndexTypeParameters,
     IndexTest,
-    ::testing::Values(std::pair(knowhere::IndexEnum::INDEX_FAISS_IDMAP, knowhere::metric::L2),
-                      std::pair(knowhere::IndexEnum::INDEX_FAISS_IVFPQ, knowhere::metric::L2),
-                      std::pair(knowhere::IndexEnum::INDEX_FAISS_IVFFLAT, knowhere::metric::L2),
-                      std::pair(knowhere::IndexEnum::INDEX_FAISS_IVFSQ8, knowhere::metric::L2),
-                      std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT, knowhere::metric::JACCARD),
-                      std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT, knowhere::metric::TANIMOTO),
-                      std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IDMAP, knowhere::metric::JACCARD),
-                      std::pair(knowhere::IndexEnum::INDEX_HNSW, knowhere::metric::L2),
-                      // ci ut not start minio, so not run ut about diskann index for now
-                      //#ifdef BUILD_DISK_ANN
-                      //                      std::pair(knowhere::IndexEnum::INDEX_DISKANN, knowhere::metric::L2),
-                      //#endif
-                      std::pair(knowhere::IndexEnum::INDEX_ANNOY, knowhere::metric::L2)));
+    ::testing::Values(std::pair(knowhere::IndexEnum::INDEX_DISKANN, knowhere::metric::L2)));
+
+//    ::testing::Values(std::pair(knowhere::IndexEnum::INDEX_FAISS_IDMAP, knowhere::metric::L2),
+//                      std::pair(knowhere::IndexEnum::INDEX_FAISS_IVFPQ, knowhere::metric::L2),
+//                      std::pair(knowhere::IndexEnum::INDEX_FAISS_IVFFLAT, knowhere::metric::L2),
+//                      std::pair(knowhere::IndexEnum::INDEX_FAISS_IVFSQ8, knowhere::metric::L2),
+//                      std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT, knowhere::metric::JACCARD),
+//                      std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IVFFLAT, knowhere::metric::TANIMOTO),
+//                      std::pair(knowhere::IndexEnum::INDEX_FAISS_BIN_IDMAP, knowhere::metric::JACCARD),
+//                      std::pair(knowhere::IndexEnum::INDEX_HNSW, knowhere::metric::L2),
+//                      // ci ut not start minio, so not run ut about diskann index for now
+//                      #ifdef BUILD_DISK_ANN
+//                                            std::pair(knowhere::IndexEnum::INDEX_DISKANN, knowhere::metric::L2),
+//                      #endif
+//                      std::pair(knowhere::IndexEnum::INDEX_ANNOY, knowhere::metric::L2)));
 
 TEST_P(IndexTest, BuildAndQuery) {
     milvus::index::CreateIndexInfo create_index_info;
@@ -422,4 +427,95 @@ TEST_P(IndexTest, BuildAndQuery) {
     if (!is_binary) {
         EXPECT_EQ(result->seg_offsets_[0], query_offset);
     }
+}
+
+void mem_usage(double& vm_usage, double& resident_set) {
+    vm_usage = 0.0;
+    resident_set = 0.0;
+    ifstream stat_stream("/proc/self/stat",std::ios_base::in); //get info from proc
+
+    //create some variables to get info
+    std::string pid, comm, state, ppid, pgrp, session, tty_nr;
+    std::string tpgid, flags, minflt, cminflt, majflt, cmajflt;
+    std::string utime, stime, cutime, cstime, priority, nice;
+    std::string O, itrealvalue, starttime;
+    unsigned long vsize;
+    long rss;
+    stat_stream >> pid >> comm >> state >> ppid >> pgrp >> session >> tty_nr
+                >> tpgid >> flags >> minflt >> cminflt >> majflt >> cmajflt
+                >> utime >> stime >> cutime >> cstime >> priority >> nice
+                >> O >> itrealvalue >> starttime >> vsize >> rss; // don't care
+
+    stat_stream.close();
+    long page_size_kb = sysconf(_SC_PAGE_SIZE) / 1024; // for x86-64 is configured
+    vm_usage = vsize / 1024.0;
+    resident_set = rss * page_size_kb;
+}
+
+TEST_P(IndexTest, LoadDiskIndex) {
+    milvus::index::CreateIndexInfo create_index_info;
+    create_index_info.index_type = index_type;
+    create_index_info.metric_type = metric_type;
+    create_index_info.field_type = vec_field_data_type;
+
+    double vm, rss;
+    mem_usage(vm, rss);
+    std::cout << "Virtual Memory: " << vm << "Resident set size: " << rss << std::endl;
+
+    // segment 436956559701180436 index size 2.1G
+    milvus::storage::FieldDataMeta field_data_meta{436954207746523138, 436954207746523139, 436956559701180436, 103};
+    milvus::storage::IndexMeta index_meta{436956559701180436, 103, 436956559701181006, 1};
+
+    auto file_manager =
+            std::make_shared<milvus::storage::DiskFileManagerImpl>(field_data_meta, index_meta, storage_config_);
+    auto index = milvus::index::IndexFactory::GetInstance().CreateIndex(create_index_info, file_manager);
+
+    std::vector<std::string> index_files;
+    for (int i = 0; i< 130; i++) {
+        index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_disk.index_" + std::to_string(i));
+    }
+    for (int i = 0; i < 10; i++) {
+        index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_pq_compressed.bin_" + std::to_string(i));
+    }
+    index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_pq_pivots.bin_0");
+    index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_pq_pivots.bin_centroid.bin_0");
+    index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_pq_pivots.bin_chunk_offsets.bin_0");
+    index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_pq_pivots.bin_rearrangement_perm.bin_0");
+
+    for (int i = 0; i < 4; i++) {
+        index_files.emplace_back("files/index_files/436956559701181006/4/436954207746523139/436956559701180436/_sample_data.bin_" + std::to_string(i));
+    }
+
+//    // segment 436954207751723741 index size 2.1G
+//    milvus::storage::FieldDataMeta field_data_meta{436954207746523138, 436954207746523139, 436954207751723741, 103};
+//    milvus::storage::IndexMeta index_meta{436954207751723741, 103, 436954207756524371, 1};
+//
+//    auto file_manager =
+//            std::make_shared<milvus::storage::DiskFileManagerImpl>(field_data_meta, index_meta, storage_config_);
+//    auto index = milvus::index::IndexFactory::GetInstance().CreateIndex(create_index_info, file_manager);
+//
+//    std::vector<std::string> index_files;
+//    for (int i = 0; i< 14; i++) {
+//        index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_disk.index_" + std::to_string(i));
+//    }
+//    for (int i = 0; i < 2; i++) {
+//        index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_pq_compressed.bin_" + std::to_string(i));
+//    }
+//    index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_pq_pivots.bin_0");
+//    index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_pq_pivots.bin_centroid.bin_0");
+//    index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_pq_pivots.bin_chunk_offsets.bin_0");
+//    index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_pq_pivots.bin_rearrangement_perm.bin_0");
+//    index_files.emplace_back("files/index_files/436954207756524371/1/436954207746523139/436954207751723741/_sample_data.bin_0");
+
+    auto binary_set = std::make_unique<knowhere::BinarySet>();
+    load_conf["index_files"] = index_files;
+    index->Load(*binary_set.get(), load_conf);
+    std::cout << "index num count = " << index->Count() << std::endl;
+//    std::cout << "index num count = " << 0 << std::endl;
+
+    mem_usage(vm, rss);
+    std::cout << "Virtual Memory: " << vm << "Resident set size: " << rss << std::endl;
+    sleep(20);
+
+
 }
