@@ -163,6 +163,12 @@ proxy:
   maxTaskNum: 1024 # max task number of proxy task queue
   # please adjust in embedded Milvus: false
   ginLogging: true # Whether to produce gin logs.
+  grpc:
+    serverMaxRecvSize: 67108864 # 64M
+    serverMaxSendSize: 67108864 # 64M
+    clientMaxRecvSize: 104857600 # 100 MB, 100 * 1024 * 1024
+    clientMaxSendSize: 104857600 # 100 MB, 100 * 1024 * 1024
+
 
 
 # Related configuration of queryCoord, used to manage topology and load balancing for the query nodes, and handoff from growing segments to sealed segments.
@@ -257,16 +263,26 @@ dataCoord:
   enableGarbageCollection: true
   enableActiveStandby: false  # Enable active-standby
 
+  channel:
+    maxWatchDuration: 60 # Timeout on watching channels (in seconds). Default 60 seconds.
+
   segment:
     maxSize: 512 # Maximum size of a segment in MB
     diskSegmentMaxSize: 2048 # Maximun size of a segment in MB for collection which has Disk index
-    sealProportion: 0.25 # It's the minimum proportion for a segment which can be sealed
+    # Minimum proportion for a segment which can be sealed.
+    # Sealing early can prevent producing large growing segments in case these segments might slow down our search/query.
+    # Segments that sealed early will be compacted into a larger segment (within maxSize) eventually.
+    sealProportion: 0.23
     assignmentExpiration: 2000 # The time of the assignment expiration in ms
     maxLife: 86400 # The max lifetime of segment in seconds, 24*60*60
     # If a segment didn't accept dml records in `maxIdleTime` and the size of segment is greater than
     # `minSizeFromIdleToSealed`, Milvus will automatically seal it.
     maxIdleTime: 600 # The max idle time of segment in seconds, 10*60.
     minSizeFromIdleToSealed: 16 # The min size in MB of segment which can be idle from sealed.
+    smallProportion: 0.5 # The segment is considered as "small segment" when its # of rows is smaller than
+    # (smallProportion * segment max # of rows).
+    compactableProportion: 0.5 # A compaction will happen on small segments if the segment after compaction will have
+    # over (compactableProportion * segment max # of rows) rows.
 
   compaction:
     enableAutoCompaction: true
@@ -308,8 +324,8 @@ grpc:
   log:
     level: WARNING
 
-  serverMaxRecvSize: 2147483647 # math.MaxInt32
-  serverMaxSendSize: 2147483647 # math.MaxInt32
+  serverMaxRecvSize: 536870912 # 512MB
+  serverMaxSendSize: 536870912 # 512MB
   clientMaxRecvSize: 104857600 # 100 MB, 100 * 1024 * 1024
   clientMaxSendSize: 104857600 # 100 MB, 100 * 1024 * 1024
 

@@ -191,12 +191,12 @@ func (c *compactionPlanHandler) execCompactionPlan(signal *compactionSignal, pla
 
 		err = c.sessions.Compaction(nodeID, plan)
 		if err != nil {
-			log.Warn("Try to Compaction but DataNode rejected", zap.Any("TargetNodeId", nodeID), zap.Any("planId", plan.GetPlanID()))
-			c.mu.Lock()
-			delete(c.plans, plan.PlanID)
-			c.executingTaskNum--
-			c.releaseQueue(nodeID)
-			c.mu.Unlock()
+			log.Warn("try to Compaction but DataNode rejected",
+				zap.Int64("targetNodeID", nodeID),
+				zap.Int64("planID", plan.GetPlanID()),
+			)
+			// do nothing here, prevent double release, see issue#21014
+			// release queue will be done in `updateCompaction`
 			return
 		}
 
@@ -246,7 +246,8 @@ func (c *compactionPlanHandler) completeCompaction(result *datapb.CompactionResu
 }
 
 func (c *compactionPlanHandler) handleMergeCompactionResult(plan *datapb.CompactionPlan, result *datapb.CompactionResult) error {
-	oldSegments, modSegments, newSegment, err := c.meta.PrepareCompleteCompactionMutation(plan.GetSegmentBinlogs(), result)
+	// Also prepare metric updates.
+	oldSegments, modSegments, newSegment, metricMutation, err := c.meta.PrepareCompleteCompactionMutation(plan.GetSegmentBinlogs(), result)
 	if err != nil {
 		return err
 	}
@@ -278,6 +279,8 @@ func (c *compactionPlanHandler) handleMergeCompactionResult(plan *datapb.Compact
 			zap.Int64("nodeID", nodeID), zap.String("reason", err.Error()))
 		return c.meta.revertAlterMetaStoreAfterCompaction(oldSegments, newSegment.SegmentInfo)
 	}
+	// Apply metrics after successful meta update.
+	metricMutation.commit()
 
 	c.meta.alterInMemoryMetaAfterCompaction(newSegment, modSegments)
 	log.Info("handleCompactionResult: success to handle merge compaction result")

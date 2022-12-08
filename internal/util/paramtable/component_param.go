@@ -1175,6 +1175,9 @@ type dataCoordConfig struct {
 	// --- ETCD ---
 	ChannelWatchSubPath string
 
+	// --- CHANNEL ---
+	MaxWatchDuration time.Duration
+
 	// --- SEGMENTS ---
 	SegmentMaxSize                 float64
 	DiskSegmentMaxSize             float64
@@ -1194,6 +1197,7 @@ type dataCoordConfig struct {
 	MinSegmentToMerge                 int
 	MaxSegmentToMerge                 int
 	SegmentSmallProportion            float64
+	SegmentCompactableProportion      float64
 	CompactionTimeoutInSeconds        int32
 	CompactionCheckIntervalInSeconds  int64
 	SingleCompactionRatioThreshold    float32
@@ -1214,6 +1218,8 @@ func (p *dataCoordConfig) init(base *BaseTable) {
 	p.Base = base
 	p.initChannelWatchPrefix()
 
+	p.initMaxWatchDuration()
+
 	p.initSegmentMaxSize()
 	p.initDiskSegmentMaxSize()
 	p.initSegmentSealProportion()
@@ -1228,6 +1234,7 @@ func (p *dataCoordConfig) init(base *BaseTable) {
 	p.initCompactionMinSegment()
 	p.initCompactionMaxSegment()
 	p.initSegmentSmallProportion()
+	p.initSegmentCompactableProportion()
 	p.initCompactionTimeoutInSeconds()
 	p.initCompactionCheckIntervalInSeconds()
 	p.initSingleCompactionRatioThreshold()
@@ -1241,6 +1248,10 @@ func (p *dataCoordConfig) init(base *BaseTable) {
 	p.initGCMissingTolerance()
 	p.initGCDropTolerance()
 	p.initEnableActiveStandby()
+}
+
+func (p *dataCoordConfig) initMaxWatchDuration() {
+	p.MaxWatchDuration = time.Duration(p.Base.ParseInt64WithDefault("dataCoord.channel.maxWatchDuration", 60)) * time.Second
 }
 
 func (p *dataCoordConfig) initSegmentMaxSize() {
@@ -1297,6 +1308,10 @@ func (p *dataCoordConfig) initCompactionMaxSegment() {
 
 func (p *dataCoordConfig) initSegmentSmallProportion() {
 	p.SegmentSmallProportion = p.Base.ParseFloatWithDefault("dataCoord.segment.smallProportion", 0.5)
+}
+
+func (p *dataCoordConfig) initSegmentCompactableProportion() {
+	p.SegmentCompactableProportion = p.Base.ParseFloatWithDefault("dataCoord.segment.compactableProportion", 0.5)
 }
 
 // compaction execution timeout

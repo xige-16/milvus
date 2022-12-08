@@ -25,7 +25,6 @@ import (
 	"math/rand"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strconv"
 
 	"github.com/golang/protobuf/proto"
@@ -523,7 +522,14 @@ func genCollectionMeta(collectionID UniqueID, schema *schemapb.CollectionSchema)
 // ---------- unittest util functions ----------
 // functions of third-party
 func genEtcdKV() (*etcdkv.EtcdKV, error) {
-	etcdCli, err := etcd.GetEtcdClient(&Params.EtcdCfg)
+	etcdCli, err := etcd.GetEtcdClient(
+		Params.EtcdCfg.UseEmbedEtcd,
+		Params.EtcdCfg.EtcdUseSSL,
+		Params.EtcdCfg.Endpoints,
+		Params.EtcdCfg.EtcdTLSCert,
+		Params.EtcdCfg.EtcdTLSKey,
+		Params.EtcdCfg.EtcdTLSCACert,
+		Params.EtcdCfg.EtcdTLSMinVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1228,10 +1234,6 @@ func genSealedSegment(schema *schemapb.CollectionSchema,
 	vChannel Channel,
 	msgLength int) (*Segment, error) {
 	col := newCollection(collectionID, schema)
-	pool, err := concurrency.NewPool(runtime.GOMAXPROCS(0))
-	if err != nil {
-		return nil, err
-	}
 
 	seg, err := newSegment(col,
 		segmentID,
@@ -1239,8 +1241,7 @@ func genSealedSegment(schema *schemapb.CollectionSchema,
 		collectionID,
 		vChannel,
 		segmentTypeSealed,
-		defaultSegmentVersion,
-		pool)
+		defaultSegmentVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -1277,28 +1278,20 @@ func genSimpleSealedSegment(msgLength int) (*Segment, error) {
 }
 
 func genSimpleReplica() (ReplicaInterface, error) {
-	pool, err := concurrency.NewPool(runtime.GOMAXPROCS(0))
-	if err != nil {
-		return nil, err
-	}
-	r := newCollectionReplica(pool)
+	r := newCollectionReplica()
 	schema := genTestCollectionSchema()
 	r.addCollection(defaultCollectionID, schema)
-	err = r.addPartition(defaultCollectionID, defaultPartitionID)
+	err := r.addPartition(defaultCollectionID, defaultPartitionID)
 	return r, err
 }
 
 func genSimpleSegmentLoaderWithMqFactory(metaReplica ReplicaInterface, factory msgstream.Factory) (*segmentLoader, error) {
-	pool, err := concurrency.NewPool(runtime.GOMAXPROCS(1))
-	if err != nil {
-		return nil, err
-	}
 	kv, err := genEtcdKV()
 	if err != nil {
 		return nil, err
 	}
 	cm := storage.NewLocalChunkManager(storage.RootPath(defaultLocalStorage))
-	return newSegmentLoader(metaReplica, kv, cm, factory, pool), nil
+	return newSegmentLoader(metaReplica, kv, cm, factory), nil
 }
 
 func genSimpleReplicaWithSealSegment(ctx context.Context) (ReplicaInterface, error) {
@@ -1689,7 +1682,14 @@ func saveChangeInfo(key string, value string) error {
 
 func genSimpleQueryNodeWithMQFactory(ctx context.Context, fac dependency.Factory) (*QueryNode, error) {
 	node := NewQueryNode(ctx, fac)
-	etcdCli, err := etcd.GetEtcdClient(&Params.EtcdCfg)
+	etcdCli, err := etcd.GetEtcdClient(
+		Params.EtcdCfg.UseEmbedEtcd,
+		Params.EtcdCfg.EtcdUseSSL,
+		Params.EtcdCfg.Endpoints,
+		Params.EtcdCfg.EtcdTLSCert,
+		Params.EtcdCfg.EtcdTLSKey,
+		Params.EtcdCfg.EtcdTLSCACert,
+		Params.EtcdCfg.EtcdTLSMinVersion)
 	if err != nil {
 		return nil, err
 	}

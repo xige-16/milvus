@@ -38,7 +38,6 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/internalpb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
-	"github.com/milvus-io/milvus/internal/util/concurrency"
 	"github.com/milvus-io/milvus/internal/util/typeutil"
 	"github.com/samber/lo"
 )
@@ -155,8 +154,6 @@ type metaReplica struct {
 
 	// segmentsBlackList stores segments which are still loading
 	segmentsBlackList typeutil.UniqueSet
-
-	cgoPool *concurrency.Pool
 }
 
 // getSegmentsMemSize get the memory size in bytes of all the Segments
@@ -186,7 +183,7 @@ func (replica *metaReplica) printReplica() {
 	log.Info("excludedSegments in collectionReplica", zap.Any("info", replica.excludedSegments))
 }
 
-//----------------------------------------------------------------------------------------------------- collection
+// ----------------------------------------------------------------------------------------------------- collection
 // getCollectionIDs gets all the collection ids in the collectionReplica
 func (replica *metaReplica) getCollectionIDs() []UniqueID {
 	replica.mu.RLock()
@@ -395,7 +392,7 @@ func (replica *metaReplica) getSegmentInfosByColID(collectionID UniqueID) []*que
 	return segmentInfos
 }
 
-//----------------------------------------------------------------------------------------------------- partition
+// ----------------------------------------------------------------------------------------------------- partition
 // addPartition adds a new partition to collection
 func (replica *metaReplica) addPartition(collectionID UniqueID, partitionID UniqueID) error {
 	replica.mu.Lock()
@@ -564,7 +561,7 @@ func (replica *metaReplica) getSegmentIDsPrivate(partitionID UniqueID, segType s
 	return partition.getSegmentIDs(segType)
 }
 
-//----------------------------------------------------------------------------------------------------- segment
+// ----------------------------------------------------------------------------------------------------- segment
 // addSegment add a new segment to collectionReplica
 func (replica *metaReplica) addSegment(segmentID UniqueID, partitionID UniqueID, collectionID UniqueID, vChannelID Channel, version UniqueID, segType segmentType) error {
 	replica.mu.Lock()
@@ -577,44 +574,65 @@ func (replica *metaReplica) addSegment(segmentID UniqueID, partitionID UniqueID,
 	collection.mu.Lock()
 	defer collection.mu.Unlock()
 
-	seg, err := newSegment(collection, segmentID, partitionID, collectionID, vChannelID, segType, version, replica.cgoPool)
+	seg, err := newSegment(collection, segmentID, partitionID, collectionID, vChannelID, segType, version)
 	if err != nil {
 		return err
 	}
-	return replica.addSegmentPrivate(segmentID, partitionID, seg)
+	return replica.addSegmentPrivate(seg)
 }
 
 // addSegmentPrivate is private function in collectionReplica, to add a new segment to collectionReplica
-func (replica *metaReplica) addSegmentPrivate(segmentID UniqueID, partitionID UniqueID, segment *Segment) error {
-	partition, err := replica.getPartitionByIDPrivate(partitionID)
+func (replica *metaReplica) addSegmentPrivate(segment *Segment) error {
+	segID := segment.segmentID
+	partition, err := replica.getPartitionByIDPrivate(segment.partitionID)
 	if err != nil {
 		return err
 	}
 
 	segType := segment.getType()
-	ok, err := replica.hasSegmentPrivate(segmentID, segType)
+	ok, err := replica.hasSegmentPrivate(segID, segType)
 	if err != nil {
 		return err
 	}
 	if ok {
 		return fmt.Errorf("segment has been existed, "+
-			"segmentID = %d, collectionID = %d, segmentType = %s", segmentID, segment.collectionID, segType.String())
+			"segmentID = %d, collectionID = %d, segmentType = %s", segID, segment.collectionID, segType.String())
 	}
-	partition.addSegmentID(segmentID, segType)
+	partition.addSegmentID(segID, segType)
 
 	switch segType {
 	case segmentTypeGrowing:
-		replica.growingSegments[segmentID] = segment
+		replica.growingSegments[segID] = segment
 	case segmentTypeSealed:
-		replica.sealedSegments[segmentID] = segment
+		replica.sealedSegments[segID] = segment
 	default:
-		return fmt.Errorf("unexpected segment type, segmentID = %d, segmentType = %s", segmentID, segType.String())
+		return fmt.Errorf("unexpected segment type, segmentID = %d, segmentType = %s", segID, segType.String())
 	}
 
-	metrics.QueryNodeNumSegments.WithLabelValues(fmt.Sprint(Params.QueryNodeCfg.GetNodeID())).Inc()
 	rowCount := segment.getRowCount()
+	log.Info("new segment added to collection replica",
+		zap.Int64("query node ID", Params.QueryNodeCfg.GetNodeID()),
+		zap.Int64("collection ID", segment.collectionID),
+		zap.Int64("partition ID", segment.partitionID),
+		zap.Int64("segment ID", segID),
+		zap.String("segment type", segType.String()),
+		zap.Int64("row count", rowCount),
+		zap.Uint64("segment indexed fields", segment.indexedFieldInfos.Len()),
+	)
+	metrics.QueryNodeNumSegments.WithLabelValues(
+		fmt.Sprint(Params.QueryNodeCfg.GetNodeID()),
+		fmt.Sprint(segment.collectionID),
+		fmt.Sprint(segment.partitionID),
+		string(segType),
+		fmt.Sprint(segment.indexedFieldInfos.Len()),
+	).Inc()
 	if rowCount > 0 {
-		metrics.QueryNodeNumEntities.WithLabelValues(fmt.Sprint(Params.QueryNodeCfg.GetNodeID())).Add(float64(rowCount))
+		metrics.QueryNodeNumEntities.WithLabelValues(
+			fmt.Sprint(Params.QueryNodeCfg.GetNodeID()),
+			fmt.Sprint(segment.collectionID),
+			fmt.Sprint(segment.partitionID),
+			string(segType),
+		).Add(float64(rowCount))
 	}
 	return nil
 }
@@ -633,7 +651,7 @@ func (replica *metaReplica) setSegment(segment *Segment) error {
 		return err
 	}
 
-	return replica.addSegmentPrivate(segment.segmentID, segment.partitionID, segment)
+	return replica.addSegmentPrivate(segment)
 }
 
 // removeSegment removes a segment from collectionReplica
@@ -665,9 +683,12 @@ func (replica *metaReplica) removeSegment(segmentID UniqueID, segType segmentTyp
 // removeSegmentPrivate is private function in collectionReplica, to remove a segment from collectionReplica
 func (replica *metaReplica) removeSegmentPrivate(segmentID UniqueID, segType segmentType) {
 	var rowCount int64
+	var segment *Segment
+
 	switch segType {
 	case segmentTypeGrowing:
-		if segment, ok := replica.growingSegments[segmentID]; ok {
+		var ok bool
+		if segment, ok = replica.growingSegments[segmentID]; ok {
 			if partition, ok := replica.partitions[segment.partitionID]; ok {
 				partition.removeSegmentID(segmentID, segType)
 			}
@@ -676,11 +697,11 @@ func (replica *metaReplica) removeSegmentPrivate(segmentID UniqueID, segType seg
 			deleteSegment(segment)
 		}
 	case segmentTypeSealed:
-		if segment, ok := replica.sealedSegments[segmentID]; ok {
+		var ok bool
+		if segment, ok = replica.sealedSegments[segmentID]; ok {
 			if partition, ok := replica.partitions[segment.partitionID]; ok {
 				partition.removeSegmentID(segmentID, segType)
 			}
-
 			rowCount = segment.getRowCount()
 			delete(replica.sealedSegments, segmentID)
 			deleteSegment(segment)
@@ -689,9 +710,38 @@ func (replica *metaReplica) removeSegmentPrivate(segmentID UniqueID, segType seg
 		panic(fmt.Sprintf("unsupported segment type %s", segType.String()))
 	}
 
-	metrics.QueryNodeNumSegments.WithLabelValues(fmt.Sprint(Params.QueryNodeCfg.GetNodeID())).Dec()
-	if rowCount > 0 {
-		metrics.QueryNodeNumEntities.WithLabelValues(fmt.Sprint(Params.QueryNodeCfg.GetNodeID())).Sub(float64(rowCount))
+	if segment == nil {
+		// If not found.
+		log.Info("segment NOT removed from collection replica: segment not exist",
+			zap.Int64("segment ID", segmentID),
+			zap.String("segment type", segType.String()),
+		)
+	} else {
+		log.Info("segment removed from collection replica",
+			zap.Int64("QueryNode ID", Params.QueryNodeCfg.GetNodeID()),
+			zap.Int64("collection ID", segment.collectionID),
+			zap.Int64("partition ID", segment.partitionID),
+			zap.Int64("segment ID", segmentID),
+			zap.String("segment type", segType.String()),
+			zap.Int64("row count", rowCount),
+			zap.Uint64("segment indexed fields", segment.indexedFieldInfos.Len()),
+		)
+		metrics.QueryNodeNumSegments.WithLabelValues(
+			fmt.Sprint(Params.QueryNodeCfg.GetNodeID()),
+			fmt.Sprint(segment.collectionID),
+			fmt.Sprint(segment.partitionID),
+			string(segType),
+			// Note: this field is mutable after segment is loaded.
+			fmt.Sprint(segment.indexedFieldInfos.Len()),
+		).Dec()
+		if rowCount > 0 {
+			metrics.QueryNodeNumEntities.WithLabelValues(
+				fmt.Sprint(Params.QueryNodeCfg.GetNodeID()),
+				fmt.Sprint(segment.collectionID),
+				fmt.Sprint(segment.partitionID),
+				string(segType),
+			).Sub(float64(rowCount))
+		}
 	}
 }
 
@@ -759,13 +809,13 @@ func (replica *metaReplica) getSegmentNum(segType segmentType) int {
 	}
 }
 
-//  getSegmentStatistics returns the statistics of segments in collectionReplica
+// getSegmentStatistics returns the statistics of segments in collectionReplica
 func (replica *metaReplica) getSegmentStatistics() []*internalpb.SegmentStats {
 	// TODO: deprecated
 	return nil
 }
 
-//  removeExcludedSegments will remove excludedSegments from collectionReplica
+// removeExcludedSegments will remove excludedSegments from collectionReplica
 func (replica *metaReplica) removeExcludedSegments(collectionID UniqueID) {
 	replica.mu.Lock()
 	defer replica.mu.Unlock()
@@ -869,7 +919,7 @@ func (replica *metaReplica) removeCollectionVDeltaChannel(collectionID UniqueID,
 }
 
 // newCollectionReplica returns a new ReplicaInterface
-func newCollectionReplica(pool *concurrency.Pool) ReplicaInterface {
+func newCollectionReplica() ReplicaInterface {
 	var replica ReplicaInterface = &metaReplica{
 		collections:     make(map[UniqueID]*Collection),
 		partitions:      make(map[UniqueID]*Partition),
@@ -879,8 +929,6 @@ func newCollectionReplica(pool *concurrency.Pool) ReplicaInterface {
 		excludedSegments: make(map[UniqueID][]*datapb.SegmentInfo),
 
 		segmentsBlackList: make(typeutil.UniqueSet),
-
-		cgoPool: pool,
 	}
 
 	return replica
