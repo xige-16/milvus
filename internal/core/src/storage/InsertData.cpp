@@ -61,7 +61,7 @@ InsertData::serialize_to_remote_file() {
 
     // serialize insert event
     auto insert_event_bytes = insert_event.Serialize();
-    DataType data_type = field_data_->get_data_type();
+    DataType data_type = field_data_->GetDataType();
 
     // create descriptor event
     DescriptorEvent descriptor_event;
@@ -77,7 +77,7 @@ InsertData::serialize_to_remote_file() {
     for (auto i = int8_t(EventType::DescriptorEvent); i < int8_t(EventType::EventTypeEnd); i++) {
         des_event_data.post_header_lengths.push_back(GetEventFixPartSize(EventType(i)));
     }
-    des_event_data.extras[ORIGIN_SIZE_KEY] = std::to_string(field_data_->get_data_size());
+    des_event_data.extras[ORIGIN_SIZE_KEY] = std::to_string(field_data_->GetDataSize());
 
     auto& des_event_header = descriptor_event.event_header;
     // TODO :: set timestamp

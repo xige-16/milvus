@@ -29,7 +29,9 @@ set(STORAGE_FILES
     Util.cpp
     PayloadReader.cpp
     PayloadWriter.cpp
-    FieldData.cpp
+#    FieldData.cpp
+    BinlogReader.cpp
+    FieldDataFactory.cpp
     IndexData.cpp
     InsertData.cpp
     Event.cpp

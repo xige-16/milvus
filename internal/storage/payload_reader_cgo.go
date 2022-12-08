@@ -27,9 +27,10 @@ func NewPayloadReaderCgo(colType schemapb.DataType, buf []byte) (*PayloadReaderC
 	if len(buf) == 0 {
 		return nil, errors.New("create Payload reader failed, buffer is empty")
 	}
-	r := C.NewPayloadReader(C.int(colType), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.int64_t(len(buf)))
-	if r == nil {
-		return nil, errors.New("failed to read parquet from buffer")
+	var r C.CPayloadReader
+	status := C.NewPayloadReader(C.int(colType), (*C.uint8_t)(unsafe.Pointer(&buf[0])), C.int64_t(len(buf)), &r)
+	if err := HandleCStatus(&status, "NewPayloadReader failed"); err != nil {
+		return nil, err
 	}
 	return &PayloadReaderCgo{payloadReaderPtr: r, colType: colType}, nil
 }
