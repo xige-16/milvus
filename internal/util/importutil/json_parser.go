@@ -82,7 +82,7 @@ func NewJSONParser(ctx context.Context, collectionSchema *schemapb.CollectionSch
 }
 
 func adjustBufSize(parser *JSONParser, collectionSchema *schemapb.CollectionSchema) {
-	sizePerRecord, _ := typeutil.EstimateSizePerRecord(collectionSchema)
+	sizePerRecord, _ := typeutil.EstimateMaxSizePerRecord(collectionSchema)
 	if sizePerRecord <= 0 {
 		return
 	}

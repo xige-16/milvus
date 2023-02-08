@@ -268,8 +268,10 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 	}
 	it.HashValues = typeutil.HashPK2Channels(it.result.IDs, channelNames)
 	// groupedHashKeys represents the dmChannel index
-	channel2RowOffsets := make(map[string][]int)  //   channelName to count
-	channelMaxTSMap := make(map[string]Timestamp) //  channelName to max Timestamp
+	channel2RowOffsets := make(map[string][]int)        //   channelName to count
+	channel2EntitySize := make(map[string]int)          //   channelName to insert entity size
+	channelMaxTSMap := make(map[string]Timestamp)       //  channelName to max Timestamp
+	EntitySizePerRow := make([]int, len(it.HashValues)) // entity size per row
 
 	// assert len(it.hashValues) < maxInt
 	for offset, channelID := range it.HashValues {
@@ -286,6 +288,17 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 		if channelMaxTSMap[channelName] < ts {
 			channelMaxTSMap[channelName] = ts
 		}
+
+		entitySize, err := typeutil.EstimateEntitySize(it.InsertRequest.GetFieldsData(), offset)
+		if err != nil {
+			log.Error("estimate entity size failed",
+				zap.Int64("collectionID", it.CollectionID),
+				zap.Int("row offset", offset),
+				zap.Error(err))
+			return nil, err
+		}
+		channel2EntitySize[channelName] += entitySize
+		EntitySizePerRow[offset] = entitySize
 	}
 
 	// pre-alloc msg id by batch
@@ -349,10 +362,7 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 		}
 		insertMsg := createInsertMsg(segmentID, channelName, msgID)
 		for _, offset := range rowOffsets {
-			curRowMessageSize, err := typeutil.EstimateEntitySize(it.InsertRequest.GetFieldsData(), offset)
-			if err != nil {
-				return nil, err
-			}
+			curRowMessageSize := EntitySizePerRow[offset]
 
 			// if insertMsg's size is greater than the threshold, split into multiple insertMsgs
 			if requestSize+curRowMessageSize >= maxMessageSize {
@@ -379,7 +389,8 @@ func (it *insertTask) assignSegmentID(channelNames []string) (*msgstream.MsgPack
 
 	// get allocated segmentID info for every dmChannel and repack insertMsgs for every segmentID
 	for channelName, rowOffsets := range channel2RowOffsets {
-		assignedSegmentInfos, err := it.segIDAssigner.GetSegmentID(it.CollectionID, it.PartitionID, channelName, uint32(len(rowOffsets)), channelMaxTSMap[channelName])
+		assignedSegmentInfos, err := it.segIDAssigner.GetSegmentIDBySize(it.CollectionID, it.PartitionID, channelName,
+			uint32(len(rowOffsets)), channel2EntitySize[channelName], channelMaxTSMap[channelName])
 		if err != nil {
 			log.Error("allocate segmentID for insert data failed",
 				zap.Int64("collectionID", it.CollectionID),

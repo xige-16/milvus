@@ -67,7 +67,7 @@ func putAllocation(a *Allocation) {
 // Manager manages segment related operations.
 type Manager interface {
 	// AllocSegment allocates rows and record the allocation.
-	AllocSegment(ctx context.Context, collectionID, partitionID UniqueID, channelName string, requestRows int64) ([]*Allocation, error)
+	AllocSegment(ctx context.Context, segmentIDReq *datapb.SegmentIDRequest) ([]*Allocation, error)
 	// allocSegmentForImport allocates one segment allocation for bulk insert.
 	// TODO: Remove this method and AllocSegment() above instead.
 	allocSegmentForImport(ctx context.Context, collectionID, partitionID UniqueID, channelName string, requestRows int64, taskID int64) (*Allocation, error)
@@ -89,6 +89,7 @@ type Allocation struct {
 	SegmentID  UniqueID
 	NumOfRows  int64
 	ExpireTime Timestamp
+	DataSize   int64
 }
 
 func (alloc Allocation) String() string {
@@ -179,7 +180,7 @@ func defaultCalUpperLimitPolicy() calUpperLimitPolicy {
 }
 
 func defaultAllocatePolicy() AllocatePolicy {
-	return AllocatePolicyV1
+	return AllocatePolicyV2
 }
 
 func defaultSegmentSealPolicy() []segmentSealPolicy {
@@ -227,13 +228,15 @@ func (s *SegmentManager) loadSegmentsFromMeta() {
 }
 
 // AllocSegment allocate segment per request collcation, partication, channel and rows
-func (s *SegmentManager) AllocSegment(ctx context.Context, collectionID UniqueID,
-	partitionID UniqueID, channelName string, requestRows int64) ([]*Allocation, error) {
+func (s *SegmentManager) AllocSegment(ctx context.Context, segmentIDReq *datapb.SegmentIDRequest) ([]*Allocation, error) {
 	sp, _ := trace.StartSpanFromContext(ctx)
 	defer sp.Finish()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	collectionID := segmentIDReq.GetCollectionID()
+	partitionID := segmentIDReq.GetPartitionID()
+	channelName := segmentIDReq.GetChannelName()
 	// filter segments
 	segments := make([]*SegmentInfo, 0)
 	for _, segmentID := range s.segments {
@@ -254,7 +257,7 @@ func (s *SegmentManager) AllocSegment(ctx context.Context, collectionID UniqueID
 		return nil, err
 	}
 	newSegmentAllocations, existedSegmentAllocations := s.allocPolicy(segments,
-		requestRows, int64(maxCountPerSegment))
+		int64(segmentIDReq.Count), int64(maxCountPerSegment))
 
 	// create new segments and add allocations
 	expireTs, err := s.genExpireTs(ctx, false)

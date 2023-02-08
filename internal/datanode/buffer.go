@@ -345,7 +345,7 @@ func (ddb *DelDataBuf) updateStartAndEndPosition(startPos *internalpb.MsgPositio
 //
 // * This need to change for string field support and multi-vector fields support.
 func newBufferData(collSchema *schemapb.CollectionSchema) (*BufferData, error) {
-	size, err := typeutil.EstimateSizePerRecord(collSchema)
+	size, err := typeutil.EstimateMaxSizePerRecord(collSchema)
 	if err != nil {
 		log.Warn("failed to estimate size per record", zap.Error(err))
 		return nil, err

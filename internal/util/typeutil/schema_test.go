@@ -127,8 +127,8 @@ func TestSchema(t *testing.T) {
 		},
 	}
 
-	t.Run("EstimateSizePerRecord", func(t *testing.T) {
-		size, err := EstimateSizePerRecord(schema)
+	t.Run("EstimateMaxSizePerRecord", func(t *testing.T) {
+		size, err := EstimateMaxSizePerRecord(schema)
 		assert.Equal(t, 680, size)
 		assert.Nil(t, err)
 	})

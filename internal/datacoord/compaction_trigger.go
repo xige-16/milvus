@@ -492,15 +492,15 @@ func (t *compactionTrigger) generatePlans(segments []*SegmentInfo, force bool, i
 	var plans []*datapb.CompactionPlan
 	// sort segment from large to small
 	sort.Slice(prioritizedCandidates, func(i, j int) bool {
-		if prioritizedCandidates[i].GetNumOfRows() != prioritizedCandidates[j].GetNumOfRows() {
-			return prioritizedCandidates[i].GetNumOfRows() > prioritizedCandidates[j].GetNumOfRows()
+		if prioritizedCandidates[i].GetDataSize() != prioritizedCandidates[j].GetDataSize() {
+			return prioritizedCandidates[i].GetDataSize() > prioritizedCandidates[j].GetDataSize()
 		}
 		return prioritizedCandidates[i].GetID() < prioritizedCandidates[j].GetID()
 	})
 
 	sort.Slice(smallCandidates, func(i, j int) bool {
-		if smallCandidates[i].GetNumOfRows() != smallCandidates[j].GetNumOfRows() {
-			return smallCandidates[i].GetNumOfRows() > smallCandidates[j].GetNumOfRows()
+		if smallCandidates[i].GetDataSize() != smallCandidates[j].GetDataSize() {
+			return smallCandidates[i].GetDataSize() > smallCandidates[j].GetDataSize()
 		}
 		return smallCandidates[i].GetID() < smallCandidates[j].GetID()
 	})
@@ -517,9 +517,9 @@ func (t *compactionTrigger) generatePlans(segments []*SegmentInfo, force bool, i
 		prioritizedCandidates = prioritizedCandidates[1:]
 
 		// only do single file compaction if segment is already large enough
-		if segment.GetNumOfRows() < segment.GetMaxRowNum() {
+		if segment.GetDataSize() < segment.GetMaxDataSize() {
 			var result []*SegmentInfo
-			free := segment.GetMaxRowNum() - segment.GetNumOfRows()
+			free := segment.GetMaxDataSize() - segment.GetDataSize()
 			maxNum := Params.DataCoordCfg.MaxSegmentToMerge - 1
 			prioritizedCandidates, result, free = greedySelect(prioritizedCandidates, free, maxNum)
 			bucket = append(bucket, result...)
@@ -551,7 +551,7 @@ func (t *compactionTrigger) generatePlans(segments []*SegmentInfo, force bool, i
 		smallCandidates = smallCandidates[1:]
 
 		var result []*SegmentInfo
-		free := segment.GetMaxRowNum() - segment.GetNumOfRows()
+		free := segment.GetMaxDataSize() - segment.GetDataSize()
 		// for small segment merge, we pick one largest segment and merge as much as small segment together with it
 		// Why reverse?	 try to merge as many segments as expected.
 		// for instance, if a 255M and 255M is the largest small candidates, they will never be merged because of the MinSegmentToMerge limit.
@@ -559,18 +559,18 @@ func (t *compactionTrigger) generatePlans(segments []*SegmentInfo, force bool, i
 		bucket = append(bucket, result...)
 
 		var size int64
-		var targetRow int64
+		var targetDataSize int64
 		for _, s := range bucket {
 			size += s.getSegmentSize()
-			targetRow += s.GetNumOfRows()
+			targetDataSize += s.GetDataSize()
 		}
 		// only merge if candidate number is large than MinSegmentToMerge or if target row is large enough
 		if len(bucket) >= Params.DataCoordCfg.MinSegmentToMerge ||
 			len(bucket) > 1 &&
-				targetRow > int64(float64(segment.GetMaxRowNum())*Params.DataCoordCfg.SegmentCompactableProportion) {
+				targetDataSize > int64(float64(segment.GetMaxDataSize())*Params.DataCoordCfg.SegmentCompactableProportion) {
 			plan := segmentsToPlan(bucket, compactTime)
 			log.Info("generate a plan for small candidates", zap.Any("plan", plan),
-				zap.Int64("target segment row", targetRow), zap.Int64("target segment size", size))
+				zap.Int64("target segment insert record size", targetDataSize), zap.Int64("target segment size", size))
 			plans = append(plans, plan)
 		}
 	}
@@ -604,9 +604,9 @@ func greedySelect(candidates []*SegmentInfo, free int64, maxSegment int) ([]*Seg
 
 	for i := 0; i < len(candidates); {
 		candidate := candidates[i]
-		if len(result) < maxSegment && candidate.GetNumOfRows() < free {
+		if len(result) < maxSegment && candidate.GetDataSize() < free {
 			result = append(result, candidate)
-			free -= candidate.GetNumOfRows()
+			free -= candidate.GetDataSize()
 			candidates = append(candidates[:i], candidates[i+1:]...)
 		} else {
 			i++
@@ -621,9 +621,9 @@ func reverseGreedySelect(candidates []*SegmentInfo, free int64, maxSegment int) 
 
 	for i := len(candidates) - 1; i >= 0; i-- {
 		candidate := candidates[i]
-		if (len(result) < maxSegment) && (candidate.GetNumOfRows() < free) {
+		if (len(result) < maxSegment) && (candidate.GetDataSize() < free) {
 			result = append(result, candidate)
-			free -= candidate.GetNumOfRows()
+			free -= candidate.GetDataSize()
 			candidates = append(candidates[:i], candidates[i+1:]...)
 		}
 	}
@@ -650,7 +650,7 @@ func (t *compactionTrigger) getCandidateSegments(channel string, partitionID Uni
 }
 
 func (t *compactionTrigger) isSmallSegment(segment *SegmentInfo) bool {
-	return segment.GetNumOfRows() < int64(float64(segment.GetMaxRowNum())*Params.DataCoordCfg.SegmentSmallProportion)
+	return segment.GetDataSize() < int64(float64(segment.GetMaxDataSize())*Params.DataCoordCfg.SegmentSmallProportion)
 }
 
 func (t *compactionTrigger) fillOriginPlan(plan *datapb.CompactionPlan) error {

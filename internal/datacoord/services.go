@@ -176,8 +176,7 @@ func (s *Server) AssignSegmentID(ctx context.Context, req *datapb.AssignSegmentI
 			segmentAllocations = append(segmentAllocations, segAlloc)
 		} else {
 			// Have segment manager allocate and return the segment allocation info.
-			segAlloc, err := s.segmentManager.AllocSegment(ctx,
-				r.CollectionID, r.PartitionID, r.ChannelName, int64(r.Count))
+			segAlloc, err := s.segmentManager.AllocSegment(ctx, r)
 			if err != nil {
 				log.Warn("failed to alloc segment", zap.Any("request", r), zap.Error(err))
 				continue

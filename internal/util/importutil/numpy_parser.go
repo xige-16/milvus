@@ -333,7 +333,7 @@ func (p *NumpyParser) validateHeader(columnReader *NumpyColumnReader) error {
 
 // calcRowCountPerBlock calculates a proper value for a batch row count to read file
 func (p *NumpyParser) calcRowCountPerBlock() (int64, error) {
-	sizePerRecord, err := typeutil.EstimateSizePerRecord(p.collectionSchema)
+	sizePerRecord, err := typeutil.EstimateMaxSizePerRecord(p.collectionSchema)
 	if err != nil {
 		log.Error("Numpy parser: failed to estimate size of each row", zap.Error(err))
 		return 0, fmt.Errorf("failed to estimate size of each row: %s", err.Error())

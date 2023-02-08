@@ -43,12 +43,13 @@ type DataCoord interface {
 
 type segRequest struct {
 	allocator.BaseRequest
-	count       uint32
-	collID      UniqueID
-	partitionID UniqueID
-	segInfo     map[UniqueID]uint32
-	channelName string
-	timestamp   Timestamp
+	count          uint32
+	collID         UniqueID
+	partitionID    UniqueID
+	segInfo        map[UniqueID]uint32
+	channelName    string
+	timestamp      Timestamp
+	insertDataSize int64
 }
 
 type segInfo struct {
@@ -214,10 +215,11 @@ func (sa *segIDAssigner) pickCanDoFunc() {
 		assign, err := sa.getAssign(segRequest.collID, segRequest.partitionID, segRequest.channelName)
 		if err != nil || assign.Capacity(segRequest.timestamp) < records[collID][partitionID][channelName] {
 			sa.segReqs = append(sa.segReqs, &datapb.SegmentIDRequest{
-				ChannelName:  channelName,
-				Count:        segRequest.count,
-				CollectionID: collID,
-				PartitionID:  partitionID,
+				ChannelName:    channelName,
+				Count:          segRequest.count,
+				CollectionID:   collID,
+				PartitionID:    partitionID,
+				InsertDataSize: segRequest.insertDataSize,
 			})
 			newTodoReqs = append(newTodoReqs, req)
 		} else {
@@ -271,7 +273,7 @@ func (sa *segIDAssigner) reduceSegReqs() {
 	beforeCnt := uint32(0)
 	var newSegReqs []*datapb.SegmentIDRequest
 	for _, req1 := range sa.segReqs {
-		if req1.Count == 0 {
+		if req1.Count == 0 { // not used
 			log.Debug("Proxy segIDAssigner reduceSegReqs hit perCount == 0")
 			req1.Count = sa.countPerRPC
 		}
@@ -385,6 +387,24 @@ func (sa *segIDAssigner) GetSegmentID(collID UniqueID, partitionID UniqueID, cha
 		channelName: channelName,
 		count:       count,
 		timestamp:   ts,
+	}
+	sa.Reqs <- req
+	if err := req.Wait(); err != nil {
+		return nil, fmt.Errorf("getSegmentID failed: %s", err)
+	}
+
+	return req.segInfo, nil
+}
+
+func (sa *segIDAssigner) GetSegmentIDBySize(collID UniqueID, partitionID UniqueID, channelName string, count uint32, size int, ts Timestamp) (map[UniqueID]uint32, error) {
+	req := &segRequest{
+		BaseRequest:    allocator.BaseRequest{Done: make(chan error), Valid: false},
+		collID:         collID,
+		partitionID:    partitionID,
+		channelName:    channelName,
+		count:          count,
+		timestamp:      ts,
+		insertDataSize: int64(size),
 	}
 	sa.Reqs <- req
 	if err := req.Wait(); err != nil {

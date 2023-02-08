@@ -167,7 +167,7 @@ func (c *ChannelMeta) maxRowCountPerSegment(ts Timestamp) (int64, error) {
 		log.Warn("failed to get collection schema", zap.Error(err))
 		return 0, err
 	}
-	sizePerRecord, err := typeutil.EstimateSizePerRecord(schema)
+	sizePerRecord, err := typeutil.EstimateMaxSizePerRecord(schema)
 	if err != nil {
 		log.Warn("failed to estimate size per record", zap.Error(err))
 		return 0, err

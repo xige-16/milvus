@@ -300,7 +300,7 @@ func (t *compactionTask) merge(
 	}
 	// estimate Rows per binlog
 	// TODO should not convert size to row because we already know the size, this is especially important on varchar types.
-	size, err := typeutil.EstimateSizePerRecord(meta.GetSchema())
+	size, err := typeutil.EstimateMaxSizePerRecord(meta.GetSchema())
 	if err != nil {
 		log.Warn("failed to estimate size per record", zap.Error(err))
 		return nil, nil, 0, err

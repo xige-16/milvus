@@ -158,7 +158,7 @@ func TestTask_loadSegmentsTask(t *testing.T) {
 		col, err := node.metaReplica.getCollectionByID(defaultCollectionID)
 		assert.NoError(t, err)
 
-		sizePerRecord, err := typeutil.EstimateSizePerRecord(col.schema)
+		sizePerRecord, err := typeutil.EstimateMaxSizePerRecord(col.schema)
 		assert.NoError(t, err)
 
 		task := loadSegmentsTask{

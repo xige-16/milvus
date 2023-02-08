@@ -972,6 +972,8 @@ func (m *meta) PrepareCompleteCompactionMutation(compactionLogs []*datapb.Compac
 		DmlPosition:         dmlPosition,
 		CreatedByCompaction: true,
 		CompactionFrom:      compactionFrom,
+		DataSize:            result.GetDataSize(),
+		MaxDataSize:         modSegments[0].GetMaxDataSize(),
 	}
 	segment := NewSegmentInfo(segmentInfo)
 	metricMutation.addNewSeg(segment.GetState(), segment.GetNumOfRows())

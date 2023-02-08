@@ -120,6 +120,7 @@ message SegmentIDRequest {
   int64 partitionID = 4;
   bool isImport = 5;        // Indicate whether this request comes from a bulk insert task.
   int64 importTaskID = 6;   // Needed for segment lock.
+  int64 insert_data_size = 7;
 }
 
 message AssignSegmentIDRequest {
@@ -136,6 +137,7 @@ message SegmentIDAssignment {
   int64 partitionID = 5;
   uint64 expire_time = 6;
   common.Status status = 7;
+  int64 insert_data_size = 8;
 }
 
 message AssignSegmentIDResponse {
@@ -277,6 +279,8 @@ message SegmentInfo {
   // (2) the bulk insert task that creates this segment has not yet reached `ImportCompleted` state.
   bool is_importing = 17;
   bool is_fake = 18;
+  int64 data_size = 19;
+  int64 max_data_size = 20;
 }
 
 message SegmentStartPosition {
@@ -469,6 +473,7 @@ message CompactionResult {
   repeated FieldBinlog field2StatslogPaths = 5;
   repeated FieldBinlog deltalogs = 6;
   string channel = 7;
+  int64 data_size = 8;
 }
 
 message CompactionStateResult {

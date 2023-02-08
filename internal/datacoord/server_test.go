@@ -235,7 +235,13 @@ func TestFlush(t *testing.T) {
 		defer closeTestServer(t, svr)
 		schema := newTestSchema()
 		svr.meta.AddCollection(&collectionInfo{ID: 0, Schema: schema, Partitions: []int64{}})
-		allocations, err := svr.segmentManager.AllocSegment(context.TODO(), 0, 1, "channel-1", 1)
+		allocations, err := svr.segmentManager.AllocSegment(context.TODO(),
+			&datapb.SegmentIDRequest{
+				CollectionID: 0,
+				PartitionID:  1,
+				ChannelName:  "channel-1",
+				Count:        1,
+			})
 		assert.Nil(t, err)
 		assert.EqualValues(t, 1, len(allocations))
 		expireTs := allocations[0].ExpireTime
@@ -1198,7 +1204,7 @@ type spySegmentManager struct {
 }
 
 // AllocSegment allocates rows and record the allocation.
-func (s *spySegmentManager) AllocSegment(ctx context.Context, collectionID UniqueID, partitionID UniqueID, channelName string, requestRows int64) ([]*Allocation, error) {
+func (s *spySegmentManager) AllocSegment(ctx context.Context, segmentIDReq *datapb.SegmentIDRequest) ([]*Allocation, error) {
 	panic("not implemented") // TODO: Implement
 }
 
