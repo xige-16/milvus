@@ -20,6 +20,7 @@
 #include <vector>
 
 #include "storage/PayloadStream.h"
+#include "storage/Util.h"
 #include <parquet/arrow/writer.h>
 
 namespace milvus::storage {
@@ -27,7 +28,9 @@ class PayloadWriter {
  public:
     explicit PayloadWriter(const DataType column_type);
     explicit PayloadWriter(const DataType column_type, int dim);
-    ~PayloadWriter() = default;
+    ~PayloadWriter() {
+        ReleaseUnusedArrowMemoryPool();
+    }
 
     void
     add_payload(const Payload& raw_data);

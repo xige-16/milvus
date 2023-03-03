@@ -42,6 +42,8 @@ class VectorDiskAnnIndex : public VectorIndex {
             binary_set.Append(file.first, nullptr, file.second);
         }
 
+        binary_set.Append("test_file", nullptr, 100);
+
         return binary_set;
     }
 

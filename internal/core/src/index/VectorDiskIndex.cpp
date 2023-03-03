@@ -95,7 +95,7 @@ VectorDiskAnnIndex<T>::BuildWithDataset(const DatasetPtr& dataset, const Config&
     knowhere::Config cfg;
     knowhere::DiskANNBuildConfig::Set(cfg, build_config);
 
-    index_->BuildAll(nullptr, cfg);
+//    index_->BuildAll(nullptr, cfg);
 
     local_chunk_manager.RemoveDir(storage::GetSegmentRawDataPathPrefix(segment_id));
     // TODO ::

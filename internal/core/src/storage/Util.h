@@ -85,4 +85,7 @@ CreateFileManager(IndexType index_type,
                   const IndexMeta& index_meta,
                   const StorageConfig& storage_config);
 
+void
+ReleaseUnusedArrowMemoryPool();
+
 }  // namespace milvus::storage

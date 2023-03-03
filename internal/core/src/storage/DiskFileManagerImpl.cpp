@@ -88,57 +88,57 @@ EncodeAndUploadIndexSlice(RemoteChunkManager* remote_chunk_manager,
                           FieldDataMeta field_meta,
                           std::string object_key) {
     auto& local_chunk_manager = LocalChunkManager::GetInstance();
-    auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[batch_size]);
-    local_chunk_manager.Read(file, offset, buf.get(), batch_size);
+//    auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[batch_size]);
+//    local_chunk_manager.Read(file, offset, buf.get(), batch_size);
 
-    auto field_data = milvus::storage::FieldDataFactory::GetInstance().CreateFieldData(DataType::INT8);
-    field_data->FillFieldData(buf.get(), batch_size);
-    auto indexData = std::make_shared<IndexData>(field_data);
-    indexData->set_index_meta(index_meta);
-    indexData->SetFieldDataMeta(field_meta);
-    auto serialized_index_data = indexData->serialize_to_remote_file();
-    auto serialized_index_size = serialized_index_data.size();
-    remote_chunk_manager->Write(object_key, serialized_index_data.data(), serialized_index_size);
-    return std::pair<std::string, size_t>(object_key, serialized_index_size);
+//    auto field_data = milvus::storage::FieldDataFactory::GetInstance().CreateFieldData(DataType::INT8);
+//    field_data->FillFieldData(buf.get(), batch_size);
+//    auto indexData = std::make_shared<IndexData>(field_data);
+//    indexData->set_index_meta(index_meta);
+//    indexData->SetFieldDataMeta(field_meta);
+//    auto serialized_index_data = indexData->serialize_to_remote_file();
+//    auto serialized_index_size = serialized_index_data.size();
+//    remote_chunk_manager->Write(object_key, serialized_index_data.data(), serialized_index_size);
+    return std::pair<std::string, size_t>(object_key, batch_size);
 }
 
 bool
 DiskFileManagerImpl::AddFile(const std::string& file) noexcept {
-    auto& local_chunk_manager = LocalChunkManager::GetInstance();
-    auto& pool = ThreadPool::GetInstance();
-    FILEMANAGER_TRY
-    if (!local_chunk_manager.Exist(file)) {
-        LOG_SEGCORE_ERROR_C << "local file: " << file << " does not exist ";
-        return false;
-    }
-
-    // record local file path
-    local_paths_.emplace_back(file);
-
-    auto fileName = GetFileName(file);
-    auto fileSize = local_chunk_manager.Size(file);
-
-    // Split local data to multi part with specified size
-    int slice_num = 0;
-    auto remotePrefix = GetRemoteIndexObjectPrefix();
-    std::vector<std::future<std::pair<std::string, size_t>>> futures;
-    for (int64_t offset = 0; offset < fileSize; slice_num++) {
-        auto batch_size = std::min(index_file_slice_size << 20, int64_t(fileSize) - offset);
-        // Put file to remote
-        char objectKey[200];
-        snprintf(objectKey, sizeof(objectKey), "%s/%s_%d", remotePrefix.c_str(), fileName.c_str(), slice_num);
-
-        // use multi-thread to put part file
-        futures.push_back(pool.Submit(EncodeAndUploadIndexSlice, rcm_.get(), file, offset, batch_size, index_meta_,
-                                      field_meta_, std::string(objectKey)));
-        offset += batch_size;
-    }
-    for (auto& future : futures) {
-        auto res = future.get();
-        remote_paths_to_size_[res.first] = res.second;
-    }
-    FILEMANAGER_CATCH
-    FILEMANAGER_END
+//    auto& local_chunk_manager = LocalChunkManager::GetInstance();
+//    auto& pool = ThreadPool::GetInstance();
+//    FILEMANAGER_TRY
+//    if (!local_chunk_manager.Exist(file)) {
+//        LOG_SEGCORE_ERROR_C << "local file: " << file << " does not exist ";
+//        return false;
+//    }
+//
+//    // record local file path
+//    local_paths_.emplace_back(file);
+//
+//    auto fileName = GetFileName(file);
+//    auto fileSize = local_chunk_manager.Size(file);
+//
+//    // Split local data to multi part with specified size
+//    int slice_num = 0;
+//    auto remotePrefix = GetRemoteIndexObjectPrefix();
+//    std::vector<std::future<std::pair<std::string, size_t>>> futures;
+//    for (int64_t offset = 0; offset < fileSize; slice_num++) {
+//        auto batch_size = std::min(index_file_slice_size << 20, int64_t(fileSize) - offset);
+//        // Put file to remote
+//        char objectKey[200];
+//        snprintf(objectKey, sizeof(objectKey), "%s/%s_%d", remotePrefix.c_str(), fileName.c_str(), slice_num);
+//
+//        // use multi-thread to put part file
+//        futures.push_back(pool.Submit(EncodeAndUploadIndexSlice, rcm_.get(), file, offset, batch_size, index_meta_,
+//                                      field_meta_, std::string(objectKey)));
+//        offset += batch_size;
+//    }
+//    for (auto& future : futures) {
+//        auto res = future.get();
+//        remote_paths_to_size_[res.first] = res.second;
+//    }
+//    FILEMANAGER_CATCH
+//    FILEMANAGER_END
 
     return true;
 }  // namespace knowhere

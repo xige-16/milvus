@@ -21,6 +21,7 @@
 
 #include "storage/PayloadStream.h"
 #include "storage/FieldData.h"
+#include "storage/Util.h"
 
 namespace milvus::storage {
 
@@ -30,7 +31,9 @@ class PayloadReader {
 
     explicit PayloadReader(const uint8_t* data, int length, DataType data_type);
 
-    ~PayloadReader() = default;
+    ~PayloadReader() {
+        ReleaseUnusedArrowMemoryPool();
+    }
 
     void
     init(std::shared_ptr<PayloadInputStream> input);

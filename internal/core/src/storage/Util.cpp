@@ -295,4 +295,16 @@ CreateFileManager(IndexType index_type,
     return nullptr;
 }
 
+void
+ReleaseUnusedArrowMemoryPool() {
+    static std::mutex release_mutex;
+
+    // While multiple threads are releasing memory,
+    // just let some of them do this also works well
+    if (release_mutex.try_lock()) {
+        arrow::default_memory_pool()->ReleaseUnused();
+        release_mutex.unlock();
+    }
+}
+
 }  // namespace milvus::storage
