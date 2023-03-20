@@ -32,9 +32,35 @@ namespace milvus::index {
 
 #if defined(__linux__) || defined(__APPLE__)
 
+StringIndexMarisa::StringIndexMarisa(storage::FileManagerImplPtr file_manager) {
+    if (file_manager != nullptr) {
+        file_manager_ = std::dynamic_pointer_cast<storage::MemFileManagerImpl>(file_manager);
+    }
+}
+
 int64_t
 StringIndexMarisa::Size() {
     return trie_.size();
+}
+
+void
+StringIndexMarisa::Build(const Config& config) {
+    auto insert_files = GetValueFromConfig<std::vector<std::string>>(config, "insert_files");
+    AssertInfo(insert_files.has_value(), "insert file paths is empty when build index");
+    auto field_datas = file_manager_->CacheRawDataToMemory(insert_files.value());
+
+    int64_t total_num_rows = 0;
+    for (auto data : field_datas) {
+        total_num_rows += data->get_num_rows();
+    }
+    auto buf = std::shared_ptr<std::string[]>(new std::string[total_num_rows]);
+    int64_t offset = 0;
+    for (auto data : field_datas) {
+        std::copy_n(reinterpret_cast<const std::string*>(data->Data()), data->get_num_rows(), buf.get());
+        offset += data->get_num_rows();
+    }
+
+    Build(total_num_rows, buf.get());
 }
 
 void
@@ -91,6 +117,21 @@ StringIndexMarisa::Serialize(const Config& config) {
     return res_set;
 }
 
+BinarySet
+StringIndexMarisa::Upload(const Config& config) {
+    auto binary_set = Serialize(config);
+    file_manager_->AddFile(binary_set);
+
+    auto remote_paths_to_size = file_manager_->GetRemotePathsToFileSize();
+    BinarySet ret;
+    for (auto& file : remote_paths_to_size) {
+        auto abs_file_path = file.first;
+        ret.Append(abs_file_path.substr(abs_file_path.find_last_of("/") + 1), nullptr, file.second);
+    }
+
+    return ret;
+}
+
 void
 StringIndexMarisa::Load(const BinarySet& set, const Config& config) {
     milvus::Assemble(const_cast<BinarySet&>(set));
@@ -119,6 +160,15 @@ StringIndexMarisa::Load(const BinarySet& set, const Config& config) {
     memcpy(str_ids_.data(), str_ids->data.get(), str_ids_len);
 
     fill_offsets();
+}
+
+void
+StringIndexMarisa::Load(const Config& config) {
+    auto index_files = GetValueFromConfig<std::vector<std::string>>(config, "index_files");
+    AssertInfo(index_files.has_value(), "index file paths is empty when load index");
+    auto binary_set = file_manager_->CacheIndexToMemory(index_files.value());
+
+    Load(binary_set, config);
 }
 
 bool
