@@ -32,6 +32,14 @@ namespace milvus::index {
 
 #if defined(__linux__) || defined(__APPLE__)
 
+class UnistdException : public std::runtime_error {
+ public:
+    explicit UnistdException(const std::string& msg) : std::runtime_error(msg) {
+    }
+    virtual ~UnistdException() {
+    }
+};
+
 StringIndexMarisa::StringIndexMarisa(storage::FileManagerImplPtr file_manager) {
     if (file_manager != nullptr) {
         file_manager_ = std::dynamic_pointer_cast<storage::MemFileManagerImpl>(file_manager);
@@ -64,7 +72,7 @@ StringIndexMarisa::Build(const Config& config) {
     for (auto data : field_datas) {
         auto slice_num = data->get_num_rows();
         for (size_t i = 0; i < slice_num; ++i) {
-            keyset.push_back(reinterpret_cast<const char*>(data->RawValue(i)));
+            keyset.push_back((*static_cast<const std::string*>(data->RawValue(i))).c_str());
         }
         total_num_rows += slice_num;
     }
@@ -76,8 +84,7 @@ StringIndexMarisa::Build(const Config& config) {
     for (auto data : field_datas) {
         auto slice_num = data->get_num_rows();
         for (size_t i = 0; i < slice_num; ++i) {
-            std::string value(reinterpret_cast<const char*>(data->RawValue(i)));
-            auto str_id = lookup(value);
+            auto str_id = lookup(*static_cast<const std::string*>(data->RawValue(i)));
             assert(valid_str_id(str_id));
             str_ids_[offset++] = str_id;
         }
@@ -111,7 +118,7 @@ StringIndexMarisa::Build(size_t n, const std::string* values) {
 }
 
 BinarySet
-StringIndexMarisa::Serialize(const Config& config) {
+StringIndexMarisa::SerializeWithoutDisassemble(const Config& config) {
     auto uuid = boost::uuids::random_generator()();
     auto uuid_string = boost::uuids::to_string(uuid);
     auto file = std::string("/tmp/") + uuid_string;
@@ -120,15 +127,15 @@ StringIndexMarisa::Serialize(const Config& config) {
     trie_.write(fd);
 
     auto size = get_file_size(fd);
-    auto buf = new uint8_t[size];
+    auto index_data = std::shared_ptr<uint8_t[]>(new uint8_t[size]);
 
-    while (read(fd, buf, size) != size) {
-        lseek(fd, 0, SEEK_SET);
-    }
-    std::shared_ptr<uint8_t[]> index_data(buf);
-
+    lseek(fd, 0, SEEK_SET);
+    auto status = read(fd, index_data.get(), size);
     close(fd);
     remove(file.c_str());
+    if (status != size) {
+        throw UnistdException("read index from fd error, errorCode is " + std::to_string(status));
+    }
 
     auto str_ids_len = str_ids_.size() * sizeof(size_t);
     std::shared_ptr<uint8_t[]> str_ids(new uint8_t[str_ids_len]);
@@ -138,15 +145,22 @@ StringIndexMarisa::Serialize(const Config& config) {
     res_set.Append(MARISA_TRIE_INDEX, index_data, size);
     res_set.Append(MARISA_STR_IDS, str_ids, str_ids_len);
 
-    milvus::Disassemble(res_set);
+    return res_set;
+}
+
+BinarySet
+StringIndexMarisa::Serialize(const Config& config) {
+    auto res_set = SerializeWithoutDisassemble(config);
+    Disassemble(res_set);
 
     return res_set;
 }
 
 BinarySet
 StringIndexMarisa::Upload(const Config& config) {
-    auto binary_set = Serialize(config);
-    file_manager_->AddFile(binary_set);
+    auto binary_set = SerializeWithoutDisassemble(config);
+    auto sliced_binary_set = ShallowDisassemble(binary_set);
+    file_manager_->AddFile(sliced_binary_set);
 
     auto remote_paths_to_size = file_manager_->GetRemotePathsToFileSize();
     BinarySet ret;
@@ -171,8 +185,12 @@ StringIndexMarisa::Load(const BinarySet& set, const Config& config) {
 
     auto fd = open(file.c_str(), O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IXUSR);
     lseek(fd, 0, SEEK_SET);
-    while (write(fd, index->data.get(), len) != len) {
-        lseek(fd, 0, SEEK_SET);
+
+    auto status = write(fd, index->data.get(), len);
+    if (status != len) {
+        close(fd);
+        remove(file.c_str());
+        throw UnistdException("write index to fd error, errorCode is " + std::to_string(status));
     }
 
     lseek(fd, 0, SEEK_SET);
@@ -189,12 +207,89 @@ StringIndexMarisa::Load(const BinarySet& set, const Config& config) {
 }
 
 void
+StringIndexMarisa::AssembleAndLoadIndexDatas(const std::map<std::string, storage::FieldDataPtr>& index_datas) {
+    auto uuid = boost::uuids::random_generator()();
+    auto uuid_string = boost::uuids::to_string(uuid);
+    auto file = std::string("/tmp/") + uuid_string;
+    auto fd = open(file.c_str(), O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR | S_IXUSR);
+
+    auto LoadIndexData = [&](int64_t offset, storage::FieldDataPtr data) {
+        lseek(fd, offset, SEEK_SET);
+        int64_t len = data->Size();
+        auto status = write(fd, data->Data(), len);
+        if (status != len) {
+            close(fd);
+            remove(file.c_str());
+            throw UnistdException("write index to fd error, errorCode is " + std::to_string(status));
+        }
+    };
+
+    bool index_data_sliced = false;
+    bool str_ids_sliced = false;
+    if (index_datas.find(INDEX_FILE_SLICE_META) != index_datas.end()) {
+        auto slice_meta = index_datas.at(INDEX_FILE_SLICE_META);
+        Config meta_data = Config::parse(std::string(static_cast<const char*>(slice_meta->Data()), slice_meta->Size()));
+
+        for (auto& item : meta_data[META]) {
+            std::string prefix = item[NAME];
+            int slice_num = item[SLICE_NUM];
+            auto total_len = static_cast<size_t>(item[TOTAL_LEN]);
+
+            int64_t offset = 0;
+            if (prefix == MARISA_TRIE_INDEX) {
+                for (auto i = 0; i < slice_num; ++i) {
+                    std::string file_name = GenSlicedFileName(prefix, i);
+                    AssertInfo(index_datas.find(file_name) != index_datas.end(), "lost index slice data");
+                    auto data = index_datas.at(file_name);
+                    LoadIndexData(offset, data);
+                    offset += data->Size();
+                }
+                index_data_sliced = true;
+            }
+
+            if (prefix == MARISA_STR_IDS) {
+                str_ids_.resize(total_len / sizeof(size_t));
+                for (auto i = 0; i < slice_num; ++i) {
+                    std::string file_name = GenSlicedFileName(prefix, i);
+                    AssertInfo(index_datas.find(file_name) != index_datas.end(), "lost str_ids slice data");
+                    auto data = index_datas.at(file_name);
+                    int64_t len = data->Size();
+                    memcpy(reinterpret_cast<uint8_t*>(str_ids_.data()) + offset, data->Data(), len);
+                    offset += len;
+                }
+                str_ids_sliced = true;
+            }
+        }
+    }
+
+    if (!index_data_sliced) {
+        AssertInfo(index_datas.find(MARISA_TRIE_INDEX) != index_datas.end(), "lost index data file");
+        auto data = index_datas.at(MARISA_TRIE_INDEX);
+        LoadIndexData(0, data);
+    }
+
+    lseek(fd, 0, SEEK_SET);
+    trie_.read(fd);
+    close(fd);
+    remove(file.c_str());
+
+    if (!str_ids_sliced) {
+        AssertInfo(index_datas.find(MARISA_STR_IDS) != index_datas.end(), "lost str_ids data file");
+        auto data = index_datas.at(MARISA_STR_IDS);
+        auto str_ids_len = data->Size();
+        str_ids_.resize(str_ids_len / sizeof(size_t));
+        memcpy(str_ids_.data(), data->Data(), str_ids_len);
+    }
+
+    fill_offsets();
+}
+
+void
 StringIndexMarisa::Load(const Config& config) {
     auto index_files = GetValueFromConfig<std::vector<std::string>>(config, "index_files");
     AssertInfo(index_files.has_value(), "index file paths is empty when load index");
-    auto binary_set = file_manager_->LoadIndexToMemory(index_files.value());
-
-    Load(binary_set, config);
+    auto index_datas = file_manager_->LoadIndexToMemory(index_files.value());
+    AssembleAndLoadIndexDatas(index_datas);
 }
 
 const TargetBitmapPtr

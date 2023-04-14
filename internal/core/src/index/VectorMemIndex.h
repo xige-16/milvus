@@ -64,6 +64,12 @@ class VectorMemIndex : public VectorIndex {
     void
     parse_config(Config& config);
 
+    virtual BinarySet
+    SerializeWithoutDisassemble(const Config& config);
+
+    virtual void
+    LoadWithoutAssemble(const BinarySet& binary_set, const Config& config);
+
  protected:
     Config config_;
     knowhere::VecIndexPtr index_ = nullptr;

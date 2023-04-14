@@ -55,6 +55,12 @@ class VectorMemNMIndex : public VectorMemIndex {
     void
     LoadRawData();
 
+    BinarySet
+    SerializeWithoutDisassemble(const Config& config) override;
+
+    void
+    LoadWithoutAssemble(const BinarySet& binary_set, const Config& config) override;
+
  private:
     std::vector<uint8_t> raw_data_;
     std::once_flag raw_data_loaded_;

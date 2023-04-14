@@ -76,9 +76,11 @@ PayloadWriter::finish() {
     auto table = arrow::Table::Make(schema_, {array});
     output_ = std::make_shared<storage::PayloadOutputStream>();
     auto mem_pool = arrow::default_memory_pool();
+    std::cout << "PayloadWriter::finish start write table" << std::endl;
     ast = parquet::arrow::WriteTable(
         *table, mem_pool, output_, 1024 * 1024 * 1024,
         parquet::WriterProperties::Builder().compression(arrow::Compression::ZSTD)->compression_level(3)->build());
+    std::cout << "PayloadWriter::finish write table done" << std::endl;
     AssertInfo(ast.ok(), ast.ToString());
 }
 

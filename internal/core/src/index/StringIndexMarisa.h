@@ -92,6 +92,12 @@ class StringIndexMarisa : public StringIndex {
     std::vector<size_t>
     prefix_match(const std::string& prefix);
 
+    BinarySet
+    SerializeWithoutDisassemble(const Config& config);
+
+    void
+    AssembleAndLoadIndexDatas(const std::map<std::string, storage::FieldDataPtr>& index_datas);
+
  private:
     Config config_;
     marisa::Trie trie_;

@@ -103,7 +103,7 @@ SegmentGrowingImpl::Insert(int64_t reserved_offset,
 void
 SegmentGrowingImpl::LoadFieldData(const LoadFieldDataInfo& infos) {
     // schema don't include system field
-    AssertInfo(infos.field_infos.size() == schema_->size() + 2, "loss some field data when load for growing segment");
+    AssertInfo(infos.field_infos.size() == schema_->size() + 2, "lost some field data when load for growing segment");
     AssertInfo(infos.field_infos.find(TimestampFieldID.get()) != infos.field_infos.end(),
                "timestamps field data should be included");
     AssertInfo(infos.field_infos.find(RowFieldID.get()) != infos.field_infos.end(),
@@ -145,12 +145,7 @@ SegmentGrowingImpl::LoadFieldData(const LoadFieldDataInfo& infos) {
 
         insert_record_.get_field_data_base(FieldId(id))->set_data_raw(reserved_offset, field_datas);
         if (id == primary_field_id.get()) {
-            auto& field_meta = schema_->operator[](primary_field_id);
-            std::vector<PkType> pks(num_rows);
-            ParsePksFromFieldData(field_meta.get_data_type(), pks, field_datas);
-            for (int i = 0; i < num_rows; ++i) {
-                insert_record_.insert_pk(pks[i], reserved_offset + i);
-            }
+            insert_record_.insert_pks(field_datas);
         }
     }
 

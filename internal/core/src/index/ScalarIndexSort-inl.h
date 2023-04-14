@@ -19,6 +19,7 @@
 #include <utility>
 #include <pb/schema.pb.h>
 #include <vector>
+#include <map>
 #include <string>
 #include "knowhere/common/Log.h"
 #include "Meta.h"
@@ -74,7 +75,7 @@ ScalarIndexSort<T>::Build(const Config& config) {
 
 template <typename T>
 inline void
-ScalarIndexSort<T>::Build(const size_t n, const T* values) {
+ScalarIndexSort<T>::Build(size_t n, const T* values) {
     if (is_built_)
         return;
     if (n == 0) {
@@ -96,7 +97,7 @@ ScalarIndexSort<T>::Build(const size_t n, const T* values) {
 
 template <typename T>
 inline BinarySet
-ScalarIndexSort<T>::Serialize(const Config& config) {
+ScalarIndexSort<T>::SerializeWithoutDisassemble(const Config& config) {
     AssertInfo(is_built_, "index has not been built");
 
     auto index_data_size = data_.size() * sizeof(IndexStructure<T>);
@@ -111,6 +112,13 @@ ScalarIndexSort<T>::Serialize(const Config& config) {
     res_set.Append("index_data", index_data, index_data_size);
     res_set.Append("index_length", index_length, sizeof(size_t));
 
+    return res_set;
+}
+
+template <typename T>
+inline BinarySet
+ScalarIndexSort<T>::Serialize(const Config& config) {
+    BinarySet res_set = SerializeWithoutDisassemble(config);
     milvus::Disassemble(res_set);
 
     return res_set;
@@ -119,8 +127,9 @@ ScalarIndexSort<T>::Serialize(const Config& config) {
 template <typename T>
 inline BinarySet
 ScalarIndexSort<T>::Upload(const Config& config) {
-    auto binary_set = Serialize(config);
-    file_manager_->AddFile(binary_set);
+    auto binary_set = SerializeWithoutDisassemble(config);
+    auto sliced_binary_set = ShallowDisassemble(binary_set);
+    file_manager_->AddFile(sliced_binary_set);
 
     auto remote_paths_to_size = file_manager_->GetRemotePathsToFileSize();
     BinarySet ret;
@@ -151,13 +160,65 @@ ScalarIndexSort<T>::Load(const BinarySet& index_binary, const Config& config) {
 }
 
 template <typename T>
+void
+ScalarIndexSort<T>::AssembleAndLoadIndexDatas(const std::map<std::string, storage::FieldDataPtr>& index_datas) {
+    size_t index_size;
+    std::string index_length_key = "index_length";
+    AssertInfo(index_datas.find(index_length_key) != index_datas.end(), "lost index length file");
+    auto index_length_data = index_datas.at(index_length_key);
+    memcpy(&index_size, index_length_data->Data(), (size_t)index_length_data->Size());
+
+    std::string index_data_key = "index_data";
+    bool index_data_sliced = false;
+    data_.resize(index_size);
+    if (index_datas.find(INDEX_FILE_SLICE_META) != index_datas.end()) {
+        auto slice_meta = index_datas.at(INDEX_FILE_SLICE_META);
+        Config meta_data = Config::parse(std::string(static_cast<const char*>(slice_meta->Data()), slice_meta->Size()));
+
+        for (auto& item : meta_data[META]) {
+            std::string prefix = item[NAME];
+            if (prefix == index_data_key) {
+                int slice_num = item[SLICE_NUM];
+                auto total_len = static_cast<size_t>(item[TOTAL_LEN]);
+
+                int64_t offset = 0;
+                for (auto i = 0; i < slice_num; ++i) {
+                    std::string file_name = GenSlicedFileName(prefix, i);
+                    AssertInfo(index_datas.find(file_name) != index_datas.end(), "lost index slice data");
+                    auto data = index_datas.at(file_name);
+                    memcpy(reinterpret_cast<uint8_t*>(data_.data()) + offset, data->Data(), (size_t)data->Size());
+                    offset += data->Size();
+                }
+                AssertInfo(total_len == offset, "index len is inconsistent after disassemble and assemble");
+                index_data_sliced = true;
+                break;
+            }
+
+            continue;
+        }
+    }
+
+    if (!index_data_sliced) {
+        AssertInfo(index_datas.find(index_data_key) != index_datas.end(), "lost index data file");
+        auto data = index_datas.at(index_data_key);
+        memcpy(data_.data(), data->Data(), (size_t)data->Size());
+    }
+
+    AssertInfo(data_.size() == index_size, "empty data when assemble");
+    idx_to_offsets_.resize(index_size);
+    for (size_t i = 0; i < data_.size(); ++i) {
+        idx_to_offsets_[data_[i].idx_] = i;
+    }
+    is_built_ = true;
+}
+
+template <typename T>
 inline void
 ScalarIndexSort<T>::Load(const Config& config) {
     auto index_files = GetValueFromConfig<std::vector<std::string>>(config, "index_files");
     AssertInfo(index_files.has_value(), "index file paths is empty when load disk ann index");
-    auto binary_set = file_manager_->LoadIndexToMemory(index_files.value());
-
-    Load(binary_set, config);
+    auto index_datas = file_manager_->LoadIndexToMemory(index_files.value());
+    AssembleAndLoadIndexDatas(index_datas);
 }
 
 template <typename T>

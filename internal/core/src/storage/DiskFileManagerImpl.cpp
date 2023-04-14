@@ -81,7 +81,7 @@ DiskFileManagerImpl::AddFile(const std::string& file) noexcept {
     std::vector<int64_t> local_file_offsets;
 
     int slice_num = 0;
-    auto parallel_degree = uint64_t(DEFAULT_DISK_INDEX_MAX_MEMORY_LIMIT / (index_file_slice_size << 20));
+    auto parallel_degree = uint64_t(DEFAULT_INDEX_MAX_MEMORY_LIMIT / INDEX_FILE_SLICE_SIZE);
     for (int64_t offset = 0; offset < fileSize; slice_num++) {
         if (batch_remote_files.size() >= parallel_degree) {
             AddBatchIndexFiles(file, local_file_offsets, batch_remote_files, remote_file_sizes);
@@ -90,7 +90,7 @@ DiskFileManagerImpl::AddFile(const std::string& file) noexcept {
             local_file_offsets.clear();
         }
 
-        auto batch_size = std::min(index_file_slice_size << 20, int64_t(fileSize) - offset);
+        auto batch_size = std::min(INDEX_FILE_SLICE_SIZE, int64_t(fileSize) - offset);
         batch_remote_files.emplace_back(GetRemoteIndexPath(fileName, slice_num));
         remote_file_sizes.emplace_back(batch_size);
         local_file_offsets.emplace_back(offset);
@@ -160,7 +160,7 @@ DiskFileManagerImpl::CacheIndexToDisk(std::vector<std::string> remote_files) {
 
     auto EstimateParalleDegree = [&](const std::string& file) -> uint64_t {
         auto fileSize = rcm_->Size(file);
-        return uint64_t(DEFAULT_DISK_INDEX_MAX_MEMORY_LIMIT / fileSize);
+        return uint64_t(DEFAULT_INDEX_MAX_MEMORY_LIMIT / fileSize);
     };
 
     for (auto& slices : index_slices) {
