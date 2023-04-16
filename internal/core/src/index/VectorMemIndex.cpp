@@ -91,9 +91,6 @@ VectorMemIndex::Load(const Config& config) {
     auto index_files = GetValueFromConfig<std::vector<std::string>>(config, "index_files");
     AssertInfo(index_files.has_value(), "index file paths is empty when load index");
     auto index_datas = file_manager_->LoadIndexToMemory(index_files.value());
-    //    auto binary_set = AssembleIndexDatas(index_datas);
-
-    //    LoadWithoutAssemble(binary_set, config);
 
     AssembleIndexDatas(index_datas);
     BinarySet binary_set;

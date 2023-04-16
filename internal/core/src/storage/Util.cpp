@@ -395,19 +395,55 @@ getCurrentRSS() {
 #endif
 }
 
+// std::vector<FieldDataPtr>
+// GetObjectData(RemoteChunkManager* remote_chunk_manager, const std::vector<std::string>& remote_files) {
+//     auto& pool = ThreadPool::GetInstance();
+//     std::vector<std::future<std::unique_ptr<DataCodec>>> futures;
+//     for (auto& file : remote_files) {
+//         futures.emplace_back(pool.Submit(DownloadAndDecodeRemoteFile, remote_chunk_manager, file));
+//     }
+
+//     std::vector<FieldDataPtr> datas;
+//     for (int i = 0; i < futures.size(); ++i) {
+//         auto res = futures[i].get();
+//         datas.emplace_back(res->GetFieldData());
+//     }
+//     ReleaseArrowUnused();
+//     return datas;
+// }
+
 std::vector<FieldDataPtr>
 GetObjectData(RemoteChunkManager* remote_chunk_manager, const std::vector<std::string>& remote_files) {
     auto& pool = ThreadPool::GetInstance();
-    std::vector<std::future<std::unique_ptr<DataCodec>>> futures;
+    auto parallel_degree = uint64_t(DEFAULT_INDEX_MAX_MEMORY_LIMIT / INDEX_FILE_SLICE_SIZE);
+    std::vector<std::string> batch_files;
+    std::vector<FieldDataPtr> datas;
+
+    auto GetFiles = [&]() {
+        std::vector<std::future<std::unique_ptr<DataCodec>>> futures;
+        for (auto& file : batch_files) {
+            futures.emplace_back(pool.Submit(DownloadAndDecodeRemoteFile, remote_chunk_manager, file));
+        }
+
+        for (int i = 0; i < futures.size(); ++i) {
+            auto res = futures[i].get();
+            datas.emplace_back(res->GetFieldData());
+        }
+    };
+
     for (auto& file : remote_files) {
-        futures.emplace_back(pool.Submit(DownloadAndDecodeRemoteFile, remote_chunk_manager, file));
+        if (batch_files.size() >= parallel_degree) {
+            GetFiles();
+            batch_files.clear();
+        }
+
+        batch_files.emplace_back(file);
     }
 
-    std::vector<FieldDataPtr> datas;
-    for (int i = 0; i < futures.size(); ++i) {
-        auto res = futures[i].get();
-        datas.emplace_back(res->GetFieldData());
+    if (batch_files.size() > 0) {
+        GetFiles();
     }
+
     ReleaseArrowUnused();
     return datas;
 }

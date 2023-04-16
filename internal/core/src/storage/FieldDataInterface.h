@@ -99,14 +99,8 @@ class FieldDataImpl : public FieldDataBase {
     void
     FillFieldData(const void* source, ssize_t element_count) override;
 
-    //    void
-    //    FillFieldData(const std::vector<std::pair<const void*, int64_t>>& source_infos) override;
-
     void
     FillFieldData(const std::shared_ptr<arrow::Array> array) override;
-
-    //    void
-    //    FillFieldData(const std::vector<std::shared_ptr<arrow::Array>>& arrays) override;
 
     std::string
     GetName() const {
