@@ -33,7 +33,6 @@ PayloadReader::PayloadReader(const uint8_t* data, int length, DataType data_type
 
 void
 PayloadReader::init(std::shared_ptr<arrow::io::BufferReader> input) {
-    LOG_SEGCORE_INFO_ << "RSS before arrow open file: " << std::to_string(getCurrentRSS());
     arrow::MemoryPool* pool = arrow::default_memory_pool();
 
     // Configure general Parquet reader settings
@@ -51,7 +50,6 @@ PayloadReader::init(std::shared_ptr<arrow::io::BufferReader> input) {
     AssertInfo(st.ok(), "file to read file");
     reader_builder.memory_pool(pool);
     reader_builder.properties(arrow_reader_props);
-    LOG_SEGCORE_INFO_ << "RSS after arrow open file: " << std::to_string(getCurrentRSS());
 
     std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
     st = reader_builder.Build(&arrow_reader);
@@ -59,10 +57,11 @@ PayloadReader::init(std::shared_ptr<arrow::io::BufferReader> input) {
 
     int64_t column_index = 0;
     auto file_meta = arrow_reader->parquet_reader()->metadata();
-    LOG_SEGCORE_INFO_ << "serialized parquet metadata, num row group  " << std::to_string(file_meta->num_row_groups())
-                      << ", num column " << std::to_string(file_meta->num_columns()) << ", num rows "
-                      << std::to_string(file_meta->num_rows()) << ", type width "
-                      << std::to_string(file_meta->schema()->Column(column_index)->type_length());
+    // LOG_SEGCORE_INFO_ << "serialized parquet metadata, num row group  " <<
+    // std::to_string(file_meta->num_row_groups())
+    //                   << ", num column " << std::to_string(file_meta->num_columns()) << ", num rows "
+    //                   << std::to_string(file_meta->num_rows()) << ", type width "
+    //                   << std::to_string(file_meta->schema()->Column(column_index)->type_length());
     dim_ = datatype_is_vector(column_type_)
                ? GetDimensionFromFileMetaData(file_meta->schema()->Column(column_index), column_type_)
                : 1;
@@ -79,9 +78,7 @@ PayloadReader::init(std::shared_ptr<arrow::io::BufferReader> input) {
         field_data_->FillFieldData(array);
     }
     AssertInfo(field_data_->IsFull(), "field data hasn't been filled done");
-
-    LOG_SEGCORE_INFO_ << "RSS after fill field data: " << std::to_string(getCurrentRSS());
-    LOG_SEGCORE_INFO_ << "Peak memory pool size " << pool->max_memory();
+    // LOG_SEGCORE_INFO_ << "Peak arrow memory pool size " << pool->max_memory();
 }
 
 }  // namespace milvus::storage

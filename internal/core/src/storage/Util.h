@@ -121,6 +121,6 @@ GetTotalNumRowsForFieldDatas(const std::vector<FieldDataPtr>& field_datas);
 void
 ReleaseArrowUnused();
 
-size_t
-getCurrentRSS();
+// size_t
+// getCurrentRSS();
 }  // namespace milvus::storage
