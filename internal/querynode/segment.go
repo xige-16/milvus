@@ -874,6 +874,10 @@ func (s *Segment) LoadFieldData(fieldID int64, rowCount int64, field *datapb.Fie
 	if !s.healthy() {
 		return fmt.Errorf("%w(segmentID=%d)", ErrSegmentUnhealthy, s.segmentID)
 	}
+	log.Info("start load field data",
+		zap.Int64("fieldID", fieldID),
+		zap.Int64("row count", rowCount),
+		zap.Int64("segmentID", s.ID()))
 
 	loadFieldDataInfo, err := newLoadFieldDataInfo()
 	defer deleteFieldDataInfo(loadFieldDataInfo)
@@ -892,6 +896,11 @@ func (s *Segment) LoadFieldData(fieldID int64, rowCount int64, field *datapb.Fie
 			return err
 		}
 	}
+
+	log.Info("load field data ing, meta is ready",
+		zap.Int64("fieldID", fieldID),
+		zap.Int64("row count", rowCount),
+		zap.Int64("segmentID", s.ID()))
 
 	status := C.LoadFieldData(s.segmentPtr, loadFieldDataInfo.cLoadFieldDataInfo)
 	if err := HandleCStatus(&status, "LoadFieldData failed"); err != nil {
