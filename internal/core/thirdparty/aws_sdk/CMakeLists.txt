@@ -11,7 +11,7 @@
 # or implied. See the License for the specific language governing permissions and limitations under the License.
 # -------------------------------------------------------------------------------
 
-set(AWS_SDK_VERSION "1.9.234")
+set(AWS_SDK_VERSION "1.8.186")
 
 macro(build_aws_sdk_s3)
     message(STATUS "Building AWS-SDK-${AWS_SDK_VERSION} from source")
