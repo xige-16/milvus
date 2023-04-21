@@ -272,9 +272,9 @@ func (loader *segmentLoader) loadFiles(ctx context.Context, segment *Segment,
 		if err := loader.loadIndexedFieldData(ctx, segment, indexedFieldInfos); err != nil {
 			return err
 		}
-		if err := loader.loadSealedSegmentFields(ctx, segment, fieldBinlogs, loadInfo.GetNumOfRows()); err != nil {
-			return err
-		}
+		//if err := loader.loadSealedSegmentFields(ctx, segment, fieldBinlogs, loadInfo.GetNumOfRows()); err != nil {
+		//	return err
+		//}
 	} else {
 		if err := segment.LoadMultiFieldData(loadInfo.GetNumOfRows(), loadInfo.BinlogPaths); err != nil {
 			return err
