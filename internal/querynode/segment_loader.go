@@ -27,10 +27,6 @@ import (
 	"strconv"
 	"time"
 
-	"go.uber.org/multierr"
-	"go.uber.org/zap"
-	"golang.org/x/sync/errgroup"
-
 	"github.com/milvus-io/milvus-proto/go-api/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/schemapb"
 	"github.com/milvus-io/milvus/internal/common"
@@ -52,6 +48,8 @@ import (
 	"github.com/milvus-io/milvus/internal/util/tsoutil"
 	"github.com/milvus-io/milvus/internal/util/typeutil"
 	"github.com/panjf2000/ants/v2"
+	"go.uber.org/multierr"
+	"go.uber.org/zap"
 )
 
 const (
@@ -310,18 +308,22 @@ func (loader *segmentLoader) filterPKStatsBinlogs(fieldBinlogs []*datapb.FieldBi
 }
 
 func (loader *segmentLoader) loadSealedSegmentFields(ctx context.Context, segment *Segment, fields []*datapb.FieldBinlog, rowCount int64) error {
-	runningGroup, _ := errgroup.WithContext(ctx)
+	//runningGroup, _ := errgroup.WithContext(ctx)
 	for _, field := range fields {
 		fieldBinLog := field
 		fieldID := field.FieldID
-		runningGroup.Go(func() error {
-			return segment.LoadFieldData(fieldID, rowCount, fieldBinLog)
-		})
+		err := segment.LoadFieldData(fieldID, rowCount, fieldBinLog)
+		if err != nil {
+			return err
+		}
+		//runningGroup.Go(func() error {
+		//	return segment.LoadFieldData(fieldID, rowCount, fieldBinLog)
+		//})
 	}
-	err := runningGroup.Wait()
-	if err != nil {
-		return err
-	}
+	//err := runningGroup.Wait()
+	//if err != nil {
+	//	return err
+	//}
 
 	log.Info("load field binlogs done for sealed segment",
 		zap.Int64("collection", segment.collectionID),
