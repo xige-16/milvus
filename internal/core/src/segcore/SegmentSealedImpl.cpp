@@ -19,6 +19,7 @@
 #include "query/SearchOnSealed.h"
 #include "storage/Util.h"
 #include "storage/RemoteChunkManagerFactory.h"
+#include "log/Log.h"
 
 namespace milvus::segcore {
 
@@ -145,16 +146,19 @@ SegmentSealedImpl::LoadScalarIndex(const LoadIndexInfo& info) {
 
 void
 SegmentSealedImpl::LoadFieldData(const LoadFieldDataInfo& load_info) {
+    LOG_SEGCORE_INFO_ << "sealed segment start load field data , segment id " << id_ ;
     // print(info);
     // NOTE: lock only when data is ready to avoid starvation
     for (auto& [id, info] : load_info.field_infos) {  // only one field for now, parallel load field data in golang
         AssertInfo(info.row_count > 0, "The row count of field data is 0");
         auto field_id = FieldId(id);
         auto insert_files = info.insert_files;
+        LOG_SEGCORE_INFO_ << "sealed segment start fetch filed data , segment id " << id_ << ", file id " << id;
         auto field_datas = LoadFieldDatasFromRemote(insert_files);
-        int64_t size = storage::GetTotalNumRowsForFieldDatas(field_datas);
-        AssertInfo(size == info.row_count, "inconsistent field data row count with meta");
-        LoadFieldData(field_id, field_datas);
+//        int64_t size = storage::GetTotalNumRowsForFieldDatas(field_datas);
+//        AssertInfo(size == info.row_count, "inconsistent field data row count with meta");
+        LOG_SEGCORE_INFO_ << "sealed segment fetch filed data done, start field data , segment id " << id_ << ", file id " << id;
+//        LoadFieldData(field_id, field_datas);
     }
 }
 

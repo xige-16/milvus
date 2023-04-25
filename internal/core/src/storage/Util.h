@@ -96,6 +96,9 @@ CreateFileManager(IndexType index_type,
 std::unique_ptr<DataCodec>
 DownloadAndDecodeRemoteFile(RemoteChunkManager* remote_chunk_manager, std::string file);
 
+std::unique_ptr<DataCodec>
+DownloadAndDecodeRemoteFileV2(RemoteChunkManager* remote_chunk_manager, std::string file);
+
 std::pair<std::string, size_t>
 EncodeAndUploadIndexSlice(RemoteChunkManager* remote_chunk_manager,
                           uint8_t* buf,
@@ -106,6 +109,9 @@ EncodeAndUploadIndexSlice(RemoteChunkManager* remote_chunk_manager,
 
 std::vector<FieldDataPtr>
 GetObjectData(RemoteChunkManager* remote_chunk_manager, const std::vector<std::string>& remote_files);
+
+std::vector<FieldDataPtr>
+GetObjectDataV2(RemoteChunkManager* remote_chunk_manager, const std::vector<std::string>& remote_files);
 
 std::map<std::string, int64_t>
 PutIndexData(RemoteChunkManager* remote_chunk_manager,

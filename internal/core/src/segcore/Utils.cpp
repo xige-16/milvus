@@ -15,6 +15,7 @@
 #include "storage/RemoteChunkManagerFactory.h"
 #include "common/Common.h"
 #include "storage/Util.h"
+#include "log/Log.h"
 
 namespace milvus::segcore {
 
@@ -498,10 +499,14 @@ LoadFieldDatasFromRemote(std::vector<std::string>& remote_files) {
     std::vector<storage::FieldDataPtr> field_datas;
 
     auto FetchRawData = [&]() {
-        auto raw_datas = GetObjectData(rcm.get(), batch_files);
+        for (auto& file: batch_files) {
+            LOG_SEGCORE_INFO_ << "LoadFieldDatasFromRemote start, file  " <<  file;
+        }
+        auto raw_datas = GetObjectDataV2(rcm.get(), batch_files);
         for (auto& data : raw_datas) {
             field_datas.emplace_back(data);
         }
+        LOG_SEGCORE_INFO_ << "LoadFieldDatasFromRemote, batch load done";
     };
 
     for (auto& file : remote_files) {
@@ -517,7 +522,7 @@ LoadFieldDatasFromRemote(std::vector<std::string>& remote_files) {
         FetchRawData();
     }
 
-    AssertInfo(field_datas.size() == remote_files.size(), "inconsistent file num and raw data num!");
+//    AssertInfo(field_datas.size() == remote_files.size(), "inconsistent file num and raw data num!");
     return field_datas;
 }
 

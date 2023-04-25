@@ -333,8 +333,22 @@ DownloadAndDecodeRemoteFile(RemoteChunkManager* remote_chunk_manager, std::strin
     auto fileSize = remote_chunk_manager->Size(file);
     auto buf = std::shared_ptr<uint8_t[]>(new uint8_t[fileSize]);
     remote_chunk_manager->Read(file, buf.get(), fileSize);
+    LOG_SEGCORE_INFO_ << "DownloadAndDecodeRemoteFile,  rcm read file done " << file;
 
-    return DeserializeFileData(buf, fileSize);
+    auto res =DeserializeFileData(buf, fileSize);
+    LOG_SEGCORE_INFO_ << "DownloadAndDecodeRemoteFile,  DeserializeFileData file done " << file;
+
+    return res;
+}
+
+std::unique_ptr<DataCodec>
+DownloadAndDecodeRemoteFileV2(RemoteChunkManager* remote_chunk_manager, std::string file) {
+    auto fileSize = remote_chunk_manager->Size(file);
+    auto buf = std::shared_ptr<uint8_t[]>(new uint8_t[fileSize]);
+    remote_chunk_manager->Read(file, buf.get(), fileSize);
+    LOG_SEGCORE_INFO_ << "DownloadAndDecodeRemoteFile,  rcm read file done " << file;
+
+    return nullptr;
 }
 
 std::pair<std::string, size_t>
@@ -400,7 +414,9 @@ GetObjectData(RemoteChunkManager* remote_chunk_manager, const std::vector<std::s
     auto& pool = ThreadPool::GetInstance();
     std::vector<std::future<std::unique_ptr<DataCodec>>> futures;
     for (auto& file : remote_files) {
+        LOG_SEGCORE_INFO_ << "GetObjectData,  start submit task, file  " << file;
         futures.emplace_back(pool.Submit(DownloadAndDecodeRemoteFile, remote_chunk_manager, file));
+        LOG_SEGCORE_INFO_ << "GetObjectData,  submit task done, file  " << file;
     }
 
     std::vector<FieldDataPtr> datas;
@@ -408,6 +424,28 @@ GetObjectData(RemoteChunkManager* remote_chunk_manager, const std::vector<std::s
         auto res = futures[i].get();
         datas.emplace_back(res->GetFieldData());
     }
+
+    LOG_SEGCORE_INFO_ << "GetObjectData done ";
+    ReleaseArrowUnused();
+    return datas;
+}
+
+std::vector<FieldDataPtr>
+GetObjectDataV2(RemoteChunkManager* remote_chunk_manager, const std::vector<std::string>& remote_files) {
+    auto& pool = ThreadPool::GetInstance();
+    std::vector<std::future<std::unique_ptr<DataCodec>>> futures;
+    for (auto& file : remote_files) {
+        LOG_SEGCORE_INFO_ << "GetObjectData,  start submit task, file  " << file;
+        futures.emplace_back(pool.Submit(DownloadAndDecodeRemoteFileV2, remote_chunk_manager, file));
+        LOG_SEGCORE_INFO_ << "GetObjectData,  submit task done, file  " << file;
+    }
+
+    std::vector<FieldDataPtr> datas;
+    for (int i = 0; i < futures.size(); ++i) {
+        auto res = futures[i].get();
+//        datas.emplace_back(res->GetFieldData());
+    }
+    LOG_SEGCORE_INFO_ << "GetObjectData done ";
     ReleaseArrowUnused();
     return datas;
 }
