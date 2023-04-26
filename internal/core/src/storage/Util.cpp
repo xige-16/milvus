@@ -330,7 +330,9 @@ CreateFileManager(IndexType index_type,
 
 std::unique_ptr<DataCodec>
 DownloadAndDecodeRemoteFile(RemoteChunkManager* remote_chunk_manager, std::string file) {
+    LOG_SEGCORE_INFO_ << "DownloadAndDecodeRemoteFile,  rcm start get file size " << file;
     auto fileSize = remote_chunk_manager->Size(file);
+    LOG_SEGCORE_INFO_ << "DownloadAndDecodeRemoteFile,  rcm get file size done, size =  " << fileSize << ", file = " << file;
     auto buf = std::shared_ptr<uint8_t[]>(new uint8_t[fileSize]);
     remote_chunk_manager->Read(file, buf.get(), fileSize);
     LOG_SEGCORE_INFO_ << "DownloadAndDecodeRemoteFile,  rcm read file done " << file;
