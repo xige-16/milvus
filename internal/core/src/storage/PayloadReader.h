@@ -31,6 +31,9 @@ class PayloadReader {
     ~PayloadReader() = default;
 
     void
+    init(std::shared_ptr<PayloadInputStream> input);
+
+    void
     init(std::shared_ptr<arrow::io::BufferReader> buffer);
 
     const FieldDataPtr
