@@ -498,29 +498,29 @@ LoadFieldDatasFromRemote(std::vector<std::string>& remote_files) {
     std::vector<std::string> batch_files;
     std::vector<storage::FieldDataPtr> field_datas;
 
-    auto FetchRawData = [&]() {
-        for (auto& file: batch_files) {
-            LOG_SEGCORE_INFO_ << "LoadFieldDatasFromRemote start, file  " <<  file;
-        }
-        auto raw_datas = GetObjectDataV2(rcm.get(), batch_files);
-        for (auto& data : raw_datas) {
-            field_datas.emplace_back(data);
-        }
-        LOG_SEGCORE_INFO_ << "LoadFieldDatasFromRemote, batch load done";
-    };
-
-    for (auto& file : remote_files) {
-        if (batch_files.size() >= parallel_degree) {
-            FetchRawData();
-            batch_files.clear();
-        }
-
-        batch_files.emplace_back(file);
-    }
-
-    if (batch_files.size() > 0) {
-        FetchRawData();
-    }
+//    auto FetchRawData = [&]() {
+//        for (auto& file: batch_files) {
+//            LOG_SEGCORE_INFO_ << "LoadFieldDatasFromRemote start, file  " <<  file;
+//        }
+//        auto raw_datas = GetObjectDataV2(rcm.get(), batch_files);
+//        for (auto& data : raw_datas) {
+//            field_datas.emplace_back(data);
+//        }
+//        LOG_SEGCORE_INFO_ << "LoadFieldDatasFromRemote, batch load done";
+//    };
+//
+//    for (auto& file : remote_files) {
+//        if (batch_files.size() >= parallel_degree) {
+//            FetchRawData();
+//            batch_files.clear();
+//        }
+//
+//        batch_files.emplace_back(file);
+//    }
+//
+//    if (batch_files.size() > 0) {
+//        FetchRawData();
+//    }
 
 //    AssertInfo(field_datas.size() == remote_files.size(), "inconsistent file num and raw data num!");
     return field_datas;
