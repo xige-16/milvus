@@ -69,16 +69,6 @@ typedef struct CProto {
     int64_t proto_size;
 } CProto;
 
-typedef struct CLoadFieldDataInfo {
-    int64_t field_id;
-    const uint8_t* blob;
-    uint64_t blob_size;
-    int64_t row_count;
-    // Set null to disable mmap,
-    // mmap file path will be {mmap_dir_path}/{segment_id}/{field_id}
-    const char* mmap_dir_path;
-} CLoadFieldDataInfo;
-
 typedef struct CLoadDeletedRecordInfo {
     void* timestamps;
     const uint8_t* primary_keys;

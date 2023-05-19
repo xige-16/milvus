@@ -24,12 +24,16 @@
 
 // NOTE: field_id can be system field
 // NOTE: Refer to common/SystemProperty.cpp for details
-// TODO: use arrow to pass field data instead of proto
-struct LoadFieldDataInfo {
+struct FieldBinlogInfo {
     int64_t field_id;
-    //    const void* blob = nullptr;
-    const milvus::DataArray* field_data;
-    int64_t row_count{-1};
+    int64_t row_count = -1;
+    std::vector<std::string> insert_files;
+};
+
+struct LoadFieldDataInfo {
+    std::map<int64_t, FieldBinlogInfo> field_infos;
+    // Set null to disable mmap,
+    // mmap file path will be {mmap_dir_path}/{segment_id}/{field_id}
     const char* mmap_dir_path{nullptr};
 };
 

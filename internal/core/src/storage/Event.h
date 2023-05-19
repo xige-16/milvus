@@ -104,6 +104,7 @@ struct DescriptorEvent {
 struct BaseEvent {
     EventHeader event_header;
     BaseEventData event_data;
+    int64_t event_offset;
 
     BaseEvent() {
     }

@@ -155,6 +155,7 @@ MinioChunkManager::BuildAliyunCloudClient(
 
 MinioChunkManager::MinioChunkManager(const StorageConfig& storage_config)
     : default_bucket_name_(storage_config.bucket_name) {
+    remote_root_path_ = storage_config.remote_root_path;
     RemoteStorageType storageType;
     if (storage_config.address.find("aliyun") != std::string::npos) {
         storageType = RemoteStorageType::ALIYUN_CLOUD;

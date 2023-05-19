@@ -16,12 +16,13 @@
 
 #pragma once
 
-#include <aws/core/Aws.h>
-#include <aws/s3/S3Client.h>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+
+#include <aws/core/Aws.h>
+#include <aws/s3/S3Client.h>
 
 #include "config/ConfigChunkManager.h"
 #include "storage/ChunkManager.h"

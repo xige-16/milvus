@@ -36,16 +36,17 @@ set(STORAGE_FILES
     InsertData.cpp
     Event.cpp
     ThreadPool.cpp
-    storage_c.cpp)
+    storage_c.cpp
+    MinioChunkManager.cpp
+    AliyunSTSClient.cpp
+    AliyunCredentialsProvider.cpp
+    MemFileManagerImpl.cpp)
 
 if(BUILD_DISK_ANN STREQUAL "ON")
     set(STORAGE_FILES
-        ${STORAGE_FILES}
-        LocalChunkManager.cpp
-        MinioChunkManager.cpp
-        AliyunSTSClient.cpp
-        AliyunCredentialsProvider.cpp
-        DiskFileManagerImpl.cpp)
+            ${STORAGE_FILES}
+            LocalChunkManager.cpp
+            DiskFileManagerImpl.cpp)
 endif()
 
 add_library(milvus_storage SHARED ${STORAGE_FILES})

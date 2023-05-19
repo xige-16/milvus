@@ -61,14 +61,16 @@ class IndexFactory {
                       storage::FileManagerImplPtr file_manager);
 
     IndexBasePtr
-    CreateScalarIndex(const CreateIndexInfo& create_index_info);
+    CreateScalarIndex(const CreateIndexInfo& create_index_info,
+                      storage::FileManagerImplPtr file_manager = nullptr);
 
     // IndexBasePtr
     // CreateIndex(DataType dtype, const IndexType& index_type);
  private:
     template <typename T>
     ScalarIndexPtr<T>
-    CreateScalarIndex(const IndexType& index_type);
+    CreateScalarIndex(const IndexType& index_type,
+                      storage::FileManagerImplPtr file_manager = nullptr);
 };
 
 }  // namespace milvus::index
