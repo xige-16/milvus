@@ -53,7 +53,10 @@ class SegmentInterface {
            Timestamp timestamp) const = 0;
 
     virtual std::unique_ptr<proto::segcore::RetrieveResults>
-    Retrieve(const query::RetrievePlan* Plan, Timestamp timestamp) const = 0;
+    Retrieve(const query::RetrievePlan* Plan,
+             Timestamp timestamp,
+             int64_t limit_rows = UNLIMITED,
+             int64_t limit_size = DEFAULT_MAX_OUTPUT_SIZE) = 0;
 
     // TODO: memory use is not correct when load string or load string index
     virtual int64_t
@@ -69,7 +72,15 @@ class SegmentInterface {
     get_deleted_count() const = 0;
 
     virtual int64_t
-    get_real_count() const = 0;
+    get_real_count() = 0;
+
+    virtual int64_t
+    get_field_avg_size(FieldId field_id) = 0;
+
+    virtual void
+    set_field_avg_size(FieldId field_id,
+                       int64_t num_rows,
+                       int64_t field_size) = 0;
 
     //  virtual int64_t
     //  PreDelete(int64_t size) = 0;
@@ -131,8 +142,10 @@ class SegmentInternalInterface : public SegmentInterface {
                     SearchResult& results) const override;
 
     std::unique_ptr<proto::segcore::RetrieveResults>
-    Retrieve(const query::RetrievePlan* plan,
-             Timestamp timestamp) const override;
+    Retrieve(const query::RetrievePlan* Plan,
+             Timestamp timestamp,
+             int64_t limit_rows = UNLIMITED,
+             int64_t limit_size = DEFAULT_MAX_OUTPUT_SIZE) override;
 
     virtual bool
     HasIndex(FieldId field_id) const = 0;
@@ -144,7 +157,15 @@ class SegmentInternalInterface : public SegmentInterface {
     debug() const = 0;
 
     int64_t
-    get_real_count() const override;
+    get_real_count() override;
+
+    int64_t
+    get_field_avg_size(FieldId field_id) override;
+
+    void
+    set_field_avg_size(FieldId field_id,
+                       int64_t num_rows,
+                       int64_t field_size) override;
 
  public:
     virtual void
@@ -224,6 +245,9 @@ class SegmentInternalInterface : public SegmentInterface {
 
  protected:
     mutable std::shared_mutex mutex_;
+    // fieldID -> std::pair<num_rows, avg_size>
+    std::unordered_map<FieldId, std::pair<int64_t, int64_t>>
+        variable_fields_avg_size_;  // bytes
 };
 
 }  // namespace milvus::segcore

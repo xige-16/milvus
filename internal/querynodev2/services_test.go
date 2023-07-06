@@ -1087,6 +1087,7 @@ func (suite *ServiceSuite) genCQueryRequest(nq int64, indexType string, schema *
 		OutputFieldsId:     []int64{106, 100},
 		TravelTimestamp:    uint64(1000),
 		SerializedExprPlan: expr,
+		Limit:              typeutil.Unlimited,
 	}, nil
 }
 

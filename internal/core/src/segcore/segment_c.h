@@ -54,7 +54,9 @@ Retrieve(CSegmentInterface c_segment,
          CRetrievePlan c_plan,
          CTraceContext c_trace,
          uint64_t timestamp,
-         CRetrieveResult* result);
+         CRetrieveResult* result,
+         int64_t limit_rows,
+         int64_t limit_size);
 
 int64_t
 GetMemoryUsageInBytes(CSegmentInterface c_segment);
@@ -102,6 +104,12 @@ LoadDeletedRecord(CSegmentInterface c_segment,
 CStatus
 UpdateSealedSegmentIndex(CSegmentInterface c_segment,
                          CLoadIndexInfo c_load_index_info);
+
+CStatus
+updateFieldRawDataSize(CSegmentInterface c_segment,
+                       int64_t field_id,
+                       int64_t num_rows,
+                       int64_t field_data_size);
 
 CStatus
 DropFieldData(CSegmentInterface c_segment, int64_t field_id);

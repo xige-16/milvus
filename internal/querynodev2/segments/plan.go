@@ -172,9 +172,10 @@ type RetrievePlan struct {
 	cRetrievePlan C.CRetrievePlan
 	Timestamp     Timestamp
 	msgID         UniqueID // only used to debug.
+	limit         int64
 }
 
-func NewRetrievePlan(col *Collection, expr []byte, timestamp Timestamp, msgID UniqueID) (*RetrievePlan, error) {
+func NewRetrievePlan(col *Collection, expr []byte, timestamp Timestamp, msgID UniqueID, limit int64) (*RetrievePlan, error) {
 	col.mu.RLock()
 	defer col.mu.RUnlock()
 
@@ -190,6 +191,7 @@ func NewRetrievePlan(col *Collection, expr []byte, timestamp Timestamp, msgID Un
 		cRetrievePlan: cPlan,
 		Timestamp:     timestamp,
 		msgID:         msgID,
+		limit:         limit,
 	}
 	return newPlan, nil
 }

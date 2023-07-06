@@ -1250,7 +1250,7 @@ func genSimpleRetrievePlan(collection *Collection) (*RetrievePlan, error) {
 		return nil, err
 	}
 
-	plan, err2 := NewRetrievePlan(collection, planBytes, timestamp, 100)
+	plan, err2 := NewRetrievePlan(collection, planBytes, timestamp, 100, typeutil.Unlimited)
 	return plan, err2
 }
 

@@ -80,6 +80,7 @@ func (t *QueryTask) Execute() error {
 		t.req.Req.GetSerializedExprPlan(),
 		t.req.Req.GetTravelTimestamp(),
 		t.req.Req.Base.GetMsgID(),
+		t.req.Req.GetLimit(),
 	)
 	if err != nil {
 		return err

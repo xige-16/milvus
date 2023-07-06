@@ -243,6 +243,41 @@ TEST(Retrieve, Empty) {
     Assert(field1.vectors().float_vector().data_size() == 0);
 }
 
+TEST(Retrieve, Limit) {
+    auto schema = std::make_shared<Schema>();
+    auto fid_64 = schema->AddDebugField("i64", DataType::INT64);
+    auto DIM = 16;
+    auto fid_vec = schema->AddDebugField(
+        "vector_64", DataType::VECTOR_FLOAT, DIM, knowhere::metric::L2);
+    schema->set_primary_field_id(fid_64);
+
+    int64_t N = 101;
+    auto dataset = DataGen(schema, N, 42);
+    auto segment = CreateSealedSegment(schema);
+    SealedLoadFieldData(dataset, *segment);
+
+    auto plan = std::make_unique<query::RetrievePlan>(*schema);
+    auto term_expr = std::make_unique<query::UnaryRangeExprImpl<int64_t>>(
+        milvus::query::ColumnInfo(
+            fid_64, DataType::INT64, std::vector<std::string>()),
+        OpType::GreaterEqual,
+        0,
+        proto::plan::GenericValue::kInt64Val);
+    plan->plan_node_ = std::make_unique<query::RetrievePlanNode>();
+    plan->plan_node_->predicate_ = std::move(term_expr);
+    std::vector<FieldId> target_fields{fid_64, fid_vec};
+    plan->field_ids_ = target_fields;
+
+    EXPECT_THROW(segment->Retrieve(plan.get(), N, N, 1), std::runtime_error);
+
+    auto retrieve_results = segment->Retrieve(plan.get(), N, N - 1);
+    Assert(retrieve_results->fields_data_size() == target_fields.size());
+    auto field0 = retrieve_results->fields_data(0);
+    auto field1 = retrieve_results->fields_data(1);
+    Assert(field0.scalars().long_data().data_size() == N - 1);
+    Assert(field1.vectors().float_vector().data_size() == (N - 1) * DIM);
+}
+
 TEST(Retrieve, LargeTimestamp) {
     auto schema = std::make_shared<Schema>();
     auto fid_64 = schema->AddDebugField("i64", DataType::INT64);

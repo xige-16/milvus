@@ -710,7 +710,7 @@ TEST(AlwaysTrueStringPlan, QueryWithOutputFields) {
     const auto& fvec_meta = schema->operator[](FieldName("fvec"));
     const auto& str_meta = schema->operator[](FieldName("str"));
 
-    auto N = 100000;
+    auto N = 10000;
     auto dataset = DataGen(schema, N);
     auto vec_col = dataset.get_col<float>(fvec_meta.get_id());
     auto str_col =

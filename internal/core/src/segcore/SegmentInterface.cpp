@@ -77,12 +77,34 @@ SegmentInternalInterface::Search(
 
 std::unique_ptr<proto::segcore::RetrieveResults>
 SegmentInternalInterface::Retrieve(const query::RetrievePlan* plan,
-                                   Timestamp timestamp) const {
+                                   Timestamp timestamp,
+                                   int64_t limit_rows,
+                                   int64_t limit_size) {
     std::shared_lock lck(mutex_);
     auto results = std::make_unique<proto::segcore::RetrieveResults>();
     query::ExecPlanNodeVisitor visitor(*this, timestamp);
     auto retrieve_results = visitor.get_retrieve_result(*plan->plan_node_);
     retrieve_results.segment_ = (void*)this;
+
+    if (limit_rows != UNLIMITED) {
+        AssertInfo(limit_rows >= 1,
+                   "retrieve limit should be Greater than or equal to 1");
+        if (retrieve_results.result_offsets_.size() > limit_rows) {
+            auto begin = retrieve_results.result_offsets_.begin();
+            std::vector<int64_t> offsets_slice(begin, begin + limit_rows);
+            retrieve_results.result_offsets_ = offsets_slice;
+        }
+    }
+
+    auto result_rows = retrieve_results.result_offsets_.size();
+    int64_t output_data_size = 0;
+    for (auto field_id : plan->field_ids_) {
+        output_data_size += get_field_avg_size(field_id) * result_rows;
+    }
+    if (output_data_size > limit_size) {
+        throw std::runtime_error("query results exceed the limit size " +
+                                 std::to_string(limit_size));
+    }
 
     if (plan->plan_node_->is_count) {
         AssertInfo(retrieve_results.field_data_.size() == 1,
@@ -155,7 +177,7 @@ SegmentInternalInterface::Retrieve(const query::RetrievePlan* plan,
 }
 
 int64_t
-SegmentInternalInterface::get_real_count() const {
+SegmentInternalInterface::get_real_count() {
 #if 0
     auto insert_cnt = get_row_count();
     BitsetType bitset_holder;
@@ -176,6 +198,58 @@ SegmentInternalInterface::get_real_count() const {
     AssertInfo(res->fields_data()[0].scalars().long_data().data_size() == 1,
                "count result should only have one row");
     return res->fields_data()[0].scalars().long_data().data(0);
+}
+
+int64_t
+SegmentInternalInterface::get_field_avg_size(FieldId field_id) {
+    if (SystemProperty::Instance().IsSystem(field_id)) {
+        if (field_id == TimestampFieldID || field_id == RowFieldID) {
+            return sizeof(int64_t);
+        }
+
+        throw std::runtime_error("unsupported system field id");
+    }
+
+    auto schema = get_schema();
+    auto& field_meta = schema[field_id];
+    auto data_type = field_meta.get_data_type();
+
+    std::shared_lock lck(mutex_);
+    if (datatype_is_variable(data_type)) {
+        if (variable_fields_avg_size_.find(field_id) ==
+            variable_fields_avg_size_.end()) {
+            variable_fields_avg_size_.emplace(field_id, std::make_pair(0, 0));
+        }
+
+        return variable_fields_avg_size_.at(field_id).second;
+    } else {
+        return field_meta.get_sizeof();
+    }
+}
+
+void
+SegmentInternalInterface::set_field_avg_size(FieldId field_id,
+                                             int64_t num_rows,
+                                             int64_t field_size) {
+    auto schema = get_schema();
+    auto& field_meta = schema[field_id];
+    auto data_type = field_meta.get_data_type();
+
+    std::unique_lock lck(mutex_);
+    if (datatype_is_variable(data_type)) {
+        AssertInfo(num_rows > 0,
+                   "The num rows of field data should be greater than 0");
+        if (variable_fields_avg_size_.find(field_id) ==
+            variable_fields_avg_size_.end()) {
+            variable_fields_avg_size_.emplace(field_id, std::make_pair(0, 0));
+        }
+
+        auto field_info = variable_fields_avg_size_.at(field_id);
+        auto size = field_info.first * field_info.second + field_size;
+        auto total_num_rows = field_info.first + num_rows;
+        variable_fields_avg_size_.emplace(
+            field_id, std::make_pair(total_num_rows, size / total_num_rows));
+    }
 }
 
 }  // namespace milvus::segcore
