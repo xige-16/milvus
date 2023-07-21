@@ -24,17 +24,14 @@ function install_linux_deps() {
           libboost-serialization-dev python3-dev libboost-python-dev libcurl4-openssl-dev gfortran libtbb-dev libzstd-dev libaio-dev \
           uuid-dev libpulse-dev
   elif [[ -x "$(command -v yum)" ]]; then
-      # for CentOS 7
-      sudo yum install -y epel-release centos-release-scl-rh && \
+      # for CentOS 8
+      sudo yum install -y epel-release && \
       sudo yum install -y git make lcov libtool m4 autoconf automake ccache openssl-devel zlib-devel libzstd-devel \
-          libcurl-devel python3-devel \
-          devtoolset-7-gcc devtoolset-7-gcc-c++ devtoolset-7-gcc-gfortran \
-          llvm-toolset-7.0-clang llvm-toolset-7.0-clang-tools-extra libuuid-devel pulseaudio-libs-devel 
+          libcurl-devel python3-devel\
+          devtoolset-8-gcc devtoolset-8-gcc-c++ devtoolset-8-gcc-gfortran \
+          clang clang-tools-extra libuuid-devel pulseaudio-libs-devel
 
-      echo "source scl_source enable devtoolset-7" | sudo tee -a /etc/profile.d/devtoolset-7.sh
-      echo "source scl_source enable llvm-toolset-7.0" | sudo tee -a /etc/profile.d/llvm-toolset-7.sh
-      echo "export CLANG_TOOLS_PATH=/opt/rh/llvm-toolset-7.0/root/usr/bin" | sudo tee -a /etc/profile.d/llvm-toolset-7.sh
-      source "/etc/profile.d/llvm-toolset-7.sh"
+      echo "source scl_source enable devtoolset-8" | sudo scl enable devtoolset-8 -- bash
 
       # Install tbb
       git clone https://github.com/wjakob/tbb.git && \
