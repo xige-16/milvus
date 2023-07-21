@@ -2,6 +2,11 @@ FROM centos:centos8
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
+RUN cd /etc/yum.repos.d/
+RUN sed -i 's/mirrorlist/#mirrorlist/g' /etc/yum.repos.d/CentOS-*
+RUN sed -i 's|#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|g' /etc/yum.repos.d/CentOS-*
+sudo yum update -y
+
 RUN yum install -y epel-release && yum install -y wget make automake \
     devtoolset-8-gcc devtoolset-8-gcc-c++ devtoolset-8-gcc-gfortran && \
     rm -rf /var/cache/yum/* && \
