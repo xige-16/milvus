@@ -805,6 +805,7 @@ func (s *Server) handleSessionEvent(ctx context.Context, event *sessionutil.Sess
 		log.Warn("receive unknown service event type",
 			zap.Any("type", event.EventType))
 	}
+	metrics.DataCoordNumDataNodes.WithLabelValues().Set(float64(len(s.cluster.sessionManager.GetSessions())))
 	return nil
 }
 
