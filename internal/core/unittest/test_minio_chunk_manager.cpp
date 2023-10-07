@@ -120,12 +120,8 @@ TEST_F(MinioChunkManagerTest, BucketNegtive) {
 
     // create already exist bucket
     chunk_manager_->CreateBucket(testBucketName);
-    try {
-        chunk_manager_->CreateBucket(testBucketName);
-    } catch (S3ErrorException& e) {
-        EXPECT_TRUE(std::string(e.what()).find("BucketAlreadyOwnedByYou") !=
-                    string::npos);
-    }
+    bool created = chunk_manager_->CreateBucket(testBucketName);
+    EXPECT_EQ(created, false);
     chunk_manager_->DeleteBucket(testBucketName);
 }
 
@@ -225,6 +221,29 @@ TEST_F(MinioChunkManagerTest, ReadPositive) {
     chunk_manager_->DeleteBucket(testBucketName);
 }
 
+TEST_F(MinioChunkManagerTest, ReadNotExist) {
+    string testBucketName = configs_.bucket_name;
+    chunk_manager_->SetBucketName(testBucketName);
+    EXPECT_EQ(chunk_manager_->GetBucketName(), testBucketName);
+
+    if (!chunk_manager_->BucketExists(testBucketName)) {
+        chunk_manager_->CreateBucket(testBucketName);
+    }
+
+    uint8_t readdata[20] = {0};
+
+    EXPECT_THROW({
+       try {
+           size = chunk_manager_->Read(path, readdata, sizeof(readdata));
+       } catch (SegcoreError& e) {
+           EXPECT_TRUE(std::string(e.what()).find("exists") !=string::npos);
+       }
+    }, SegcoreError);
+
+    chunk_manager_->Remove(path);
+    chunk_manager_->DeleteBucket(testBucketName);
+}
+
 TEST_F(MinioChunkManagerTest, RemovePositive) {
     string testBucketName = "test-remove";
     chunk_manager_->SetBucketName(testBucketName);
@@ -240,7 +259,12 @@ TEST_F(MinioChunkManagerTest, RemovePositive) {
     bool exist = chunk_manager_->Exist(path);
     EXPECT_EQ(exist, true);
 
-    chunk_manager_->Remove(path);
+    bool deleted = chunk_manager_->Remove(path);
+    EXPECT_EQ(deleted, true);
+
+    // test double deleted
+    deleted = chunk_manager_->Remove(path);
+    EXPECT_EQ(deleted, false);
 
     exist = chunk_manager_->Exist(path);
     EXPECT_EQ(exist, false);
