@@ -358,16 +358,18 @@ MinioChunkManager::Write(const std::string& filepath,
 
 bool
 MinioChunkManager::BucketExists(const std::string& bucket_name) {
-
     Aws::S3::Model::HeadBucketRequest request;
     request.SetBucket(bucket_name.c_str());
 
     auto outcome = client_->HeadBucket(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err  = outcome.GetError();
+        const auto& err = outcome.GetError();
+        auto error_type = err.GetErrorType();
         // only throw if the error is not nosuchbucket
-        if (err.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET)  {
+        // if bucket not exist, HeadBucket return errorType RESOURCE_NOT_FOUND
+        if (error_type != Aws::S3::S3Errors::NO_SUCH_BUCKET &&
+            error_type != Aws::S3::S3Errors::RESOURCE_NOT_FOUND) {
             ThrowS3Error("BucketExists", err, "params, bucket={}", bucket_name);
         }
         return false;
@@ -381,7 +383,7 @@ MinioChunkManager::ListBuckets() {
     auto outcome = client_->ListBuckets();
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
+        const auto& err = outcome.GetError();
         ThrowS3Error("ListBuckets", err, "params");
     }
     for (auto&& b : outcome.GetResult().GetBuckets()) {
@@ -398,8 +400,9 @@ MinioChunkManager::CreateBucket(const std::string& bucket_name) {
     auto outcome = client_->CreateBucket(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
-        if (err.GetErrorType() != Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU)  {
+        const auto& err = outcome.GetError();
+        if (err.GetErrorType() !=
+            Aws::S3::S3Errors::BUCKET_ALREADY_OWNED_BY_YOU) {
             ThrowS3Error("CreateBucket", err, "params, bucket={}", bucket_name);
         }
         return false;
@@ -415,7 +418,7 @@ MinioChunkManager::DeleteBucket(const std::string& bucket_name) {
     auto outcome = client_->DeleteBucket(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
+        const auto& err = outcome.GetError();
         if (err.GetErrorType() != Aws::S3::S3Errors::NO_SUCH_BUCKET) {
             ThrowS3Error("DeleteBucket", err, "params, bucket={}", bucket_name);
         }
@@ -434,9 +437,13 @@ MinioChunkManager::ObjectExists(const std::string& bucket_name,
     auto outcome = client_->HeadObject(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
+        const auto& err = outcome.GetError();
         if (!IsNotFound(err.GetErrorType())) {
-            ThrowS3Error("ObjectExists", err, "params, bucket={}, object={}", bucket_name, object_name);
+            ThrowS3Error("ObjectExists",
+                         err,
+                         "params, bucket={}, object={}",
+                         bucket_name,
+                         object_name);
         }
         return false;
     }
@@ -452,8 +459,12 @@ MinioChunkManager::GetObjectSize(const std::string& bucket_name,
 
     auto outcome = client_->HeadObject(request);
     if (!outcome.IsSuccess()) {
-         const auto & err  = outcome.GetError();
-         ThrowS3Error("GetObjectSize", err, "params, bucket={}, object={}", bucket_name, object_name);
+        const auto& err = outcome.GetError();
+        ThrowS3Error("GetObjectSize",
+                     err,
+                     "params, bucket={}, object={}",
+                     bucket_name,
+                     object_name);
     }
     return outcome.GetResult().GetContentLength();
 }
@@ -468,9 +479,13 @@ MinioChunkManager::DeleteObject(const std::string& bucket_name,
     auto outcome = client_->DeleteObject(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
+        const auto& err = outcome.GetError();
         if (!IsNotFound(err.GetErrorType())) {
-            ThrowS3Error("DeleteObject", err, "params, bucket={}, object={}", bucket_name, object_name);
+            ThrowS3Error("DeleteObject",
+                         err,
+                         "params, bucket={}, object={}",
+                         bucket_name,
+                         object_name);
         }
         return false;
     }
@@ -495,8 +510,12 @@ MinioChunkManager::PutObjectBuffer(const std::string& bucket_name,
     auto outcome = client_->PutObject(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
-        ThrowS3Error("PutObjectBuffer", err, "params, bucket={}, object={}", bucket_name, object_name);
+        const auto& err = outcome.GetError();
+        ThrowS3Error("PutObjectBuffer",
+                     err,
+                     "params, bucket={}, object={}",
+                     bucket_name,
+                     object_name);
     }
     return true;
 }
@@ -564,14 +583,19 @@ MinioChunkManager::GetObjectBuffer(const std::string& bucket_name,
     auto outcome = client_->GetObject(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
-        ThrowS3Error("GetObjectBuffer", err, "params, bucket={}, object={}", bucket_name, object_name);
+        const auto& err = outcome.GetError();
+        ThrowS3Error("GetObjectBuffer",
+                     err,
+                     "params, bucket={}, object={}",
+                     bucket_name,
+                     object_name);
     }
     return size;
 }
 
 std::vector<std::string>
-MinioChunkManager::ListObjects(const std::string& bucket_name, const std::string& prefix) {
+MinioChunkManager::ListObjects(const std::string& bucket_name,
+                               const std::string& prefix) {
     std::vector<std::string> objects_vec;
     Aws::S3::Model::ListObjectsRequest request;
     request.WithBucket(bucket_name);
@@ -582,8 +606,12 @@ MinioChunkManager::ListObjects(const std::string& bucket_name, const std::string
     auto outcome = client_->ListObjects(request);
 
     if (!outcome.IsSuccess()) {
-        const auto & err = outcome.GetError();
-        ThrowS3Error("ListObjects", err, "params, bucket={}, prefix={}", bucket_name, prefix);
+        const auto& err = outcome.GetError();
+        ThrowS3Error("ListObjects",
+                     err,
+                     "params, bucket={}, prefix={}",
+                     bucket_name,
+                     prefix);
     }
     auto objects = outcome.GetResult().GetContents();
     for (auto& obj : objects) {

@@ -42,28 +42,29 @@
 #include "storage/ChunkManager.h"
 #include "storage/Types.h"
 
-
 namespace milvus::storage {
 
 enum class RemoteStorageType { S3 = 0, GOOGLE_CLOUD = 1, ALIYUN_CLOUD = 2 };
 
 template <typename... Args>
-static SegcoreError ThrowS3Error(const std::string& func, const Aws::S3::S3Error& err, const std::string & fmtString, Args &&... args) {
+static SegcoreError
+ThrowS3Error(const std::string& func,
+             const Aws::S3::S3Error& err,
+             const std::string& fmtString,
+             Args&&... args) {
     std::ostringstream oss;
     const auto& message = fmt::format(fmtString, std::forward<Args>(args)...);
-    oss << "Error in " << func
-        << "[errcode:" << int(err.GetResponseCode())
+    oss << "Error in " << func << "[errcode:" << int(err.GetResponseCode())
         << ", exception:" << err.GetExceptionName()
-        << ", errmessage:" << err.GetMessage()
-        << ", params:" << message << "]";
+        << ", errmessage:" << err.GetMessage() << ", params:" << message << "]";
     throw SegcoreError(S3Error, oss.str());
 }
 
-static bool IsNotFound(const Aws::S3::S3Errors& s3err) {
-  return (s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
-          s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND);
+static bool
+IsNotFound(const Aws::S3::S3Errors& s3err) {
+    return (s3err == Aws::S3::S3Errors::NO_SUCH_KEY ||
+            s3err == Aws::S3::S3Errors::RESOURCE_NOT_FOUND);
 }
-
 
 /**
  * @brief user defined aws logger, redirect aws log to segcore log
