@@ -1699,6 +1699,7 @@ func TestSearchTask_ErrExecute(t *testing.T) {
 			},
 			CollectionName: collectionName,
 			Nq:             2,
+			DslType:        commonpb.DslType_BoolExprV1,
 		},
 		qc: qc,
 		lb: lb,
@@ -1710,7 +1711,13 @@ func TestSearchTask_ErrExecute(t *testing.T) {
 	assert.NoError(t, task.OnEnqueue())
 
 	task.ctx = ctx
-	assert.NoError(t, task.PreExecute(ctx))
+	if enableMultipleVectorFields {
+		err = task.PreExecute(ctx)
+		assert.Error(t, err)
+		assert.Equal(t, err.Error(), "anns_field not found in search_params")
+	} else {
+		assert.NoError(t, task.PreExecute(ctx))
+	}
 
 	qn.EXPECT().Search(mock.Anything, mock.Anything).Return(nil, errors.New("mock error"))
 	assert.Error(t, task.Execute(ctx))
