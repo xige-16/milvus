@@ -20,11 +20,9 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/errors"
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -32,16 +30,16 @@ import (
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
-	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
 	"github.com/milvus-io/milvus/internal/datanode/allocator"
 	"github.com/milvus-io/milvus/internal/datanode/broker"
+	"github.com/milvus-io/milvus/internal/datanode/metacache"
+	"github.com/milvus-io/milvus/internal/datanode/syncmgr"
 	memkv "github.com/milvus-io/milvus/internal/kv/mem"
 	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/etcdpb"
 	"github.com/milvus-io/milvus/internal/storage"
 	"github.com/milvus-io/milvus/pkg/common"
-	"github.com/milvus-io/milvus/pkg/util/merr"
 	"github.com/milvus-io/milvus/pkg/util/paramtable"
 	"github.com/milvus-io/milvus/pkg/util/timerecord"
 )
@@ -56,50 +54,31 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 	t.Run("Test getSegmentMeta", func(t *testing.T) {
 		f := MetaFactory{}
 		meta := f.GetCollectionMeta(1, "testCollection", schemapb.DataType_Int64)
-		broker := broker.NewMockBroker(t)
-		broker.EXPECT().DescribeCollection(mock.Anything, int64(1), mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:         merr.Status(nil),
-				CollectionID:   1,
-				CollectionName: "testCollection",
-				Schema:         meta.GetSchema(),
-				ShardsNum:      common.DefaultShardsNum,
-			}, nil)
-		channel := newChannel("a", 1, nil, broker, cm)
+
+		metaCache := metacache.NewMockMetaCache(t)
+		metaCache.EXPECT().GetSegmentByID(mock.Anything).RunAndReturn(func(id int64, filters ...metacache.SegmentFilter) (*metacache.SegmentInfo, bool) {
+			if id == 100 {
+				return metacache.NewSegmentInfo(&datapb.SegmentInfo{ID: 100, CollectionID: 1, PartitionID: 10}, nil), true
+			}
+			return nil, false
+		})
+		metaCache.EXPECT().Collection().Return(1)
+		metaCache.EXPECT().Schema().Return(meta.GetSchema())
 		var err error
 
 		task := &compactionTask{
-			Channel: channel,
-			done:    make(chan struct{}, 1),
+			metaCache: metaCache,
+			done:      make(chan struct{}, 1),
 		}
 
-		_, _, _, err = task.getSegmentMeta(100)
+		_, _, _, err = task.getSegmentMeta(200)
 		assert.Error(t, err)
-
-		err = channel.addSegment(
-			context.TODO(),
-			addSegmentReq{
-				segType:     datapb.SegmentType_New,
-				segID:       100,
-				collID:      1,
-				partitionID: 10,
-				startPos:    new(msgpb.MsgPosition),
-				endPos:      nil,
-			})
-		require.NoError(t, err)
 
 		collID, partID, meta, err := task.getSegmentMeta(100)
 		assert.NoError(t, err)
 		assert.Equal(t, UniqueID(1), collID)
 		assert.Equal(t, UniqueID(10), partID)
 		assert.NotNil(t, meta)
-
-		broker.ExpectedCalls = nil
-		broker.EXPECT().DescribeCollection(mock.Anything, int64(1), mock.Anything).
-			Return(nil, errors.New("mock"))
-		task.Channel.(*ChannelMeta).collSchema = nil
-		_, _, _, err = task.getSegmentMeta(100)
-		assert.Error(t, err)
 	})
 
 	t.Run("Test.interface2FieldData", func(t *testing.T) {
@@ -292,8 +271,17 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 				Schema: meta.GetSchema(),
 			}, nil).Maybe()
 
-		channel := newChannel("a", collectionID, meta.GetSchema(), broker, nil)
-		channel.segments[1] = &Segment{numRows: 10}
+		metaCache := metacache.NewMockMetaCache(t)
+		metaCache.EXPECT().Schema().Return(meta.GetSchema()).Maybe()
+		metaCache.EXPECT().GetSegmentByID(mock.Anything).RunAndReturn(func(id int64, filters ...metacache.SegmentFilter) (*metacache.SegmentInfo, bool) {
+			segment := metacache.NewSegmentInfo(&datapb.SegmentInfo{
+				CollectionID: 1,
+				PartitionID:  0,
+				ID:           id,
+				NumOfRows:    10,
+			}, nil)
+			return segment, true
+		})
 
 		alloc := allocator.NewMockAllocator(t)
 		alloc.EXPECT().GetGenerator(mock.Anything, mock.Anything).Call.Return(validGeneratorFn, nil)
@@ -323,7 +311,10 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			}
 
 			ct := &compactionTask{
-				Channel: channel, downloader: mockbIO, uploader: mockbIO, done: make(chan struct{}, 1),
+				metaCache:  metaCache,
+				downloader: mockbIO,
+				uploader:   mockbIO,
+				done:       make(chan struct{}, 1),
 				plan: &datapb.CompactionPlan{
 					SegmentBinlogs: []*datapb.CompactionSegmentBinlogs{
 						{SegmentID: 1},
@@ -367,7 +358,10 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			dm := map[interface{}]Timestamp{}
 
 			ct := &compactionTask{
-				Channel: channel, downloader: mockbIO, uploader: mockbIO, done: make(chan struct{}, 1),
+				metaCache:  metaCache,
+				downloader: mockbIO,
+				uploader:   mockbIO,
+				done:       make(chan struct{}, 1),
 				plan: &datapb.CompactionPlan{
 					SegmentBinlogs: []*datapb.CompactionSegmentBinlogs{
 						{SegmentID: 1},
@@ -414,7 +408,10 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			}
 
 			ct := &compactionTask{
-				Channel: channel, downloader: mockbIO, uploader: mockbIO, done: make(chan struct{}, 1),
+				metaCache:  metaCache,
+				downloader: mockbIO,
+				uploader:   mockbIO,
+				done:       make(chan struct{}, 1),
 				plan: &datapb.CompactionPlan{
 					SegmentBinlogs: []*datapb.CompactionSegmentBinlogs{
 						{SegmentID: 1},
@@ -461,7 +458,7 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 
 			// 10 days in seconds
 			ct := &compactionTask{
-				Channel:    channel,
+				metaCache:  metaCache,
 				downloader: mockbIO,
 				uploader:   mockbIO,
 				plan: &datapb.CompactionPlan{
@@ -477,6 +474,59 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			assert.Equal(t, int64(0), numOfRow)
 			assert.Equal(t, 0, len(inPaths))
 			assert.Equal(t, 0, len(statsPaths))
+		})
+
+		t.Run("merge_with_rownum_zero", func(t *testing.T) {
+			mockbIO := &binlogIO{cm, alloc}
+			iData := genInsertDataWithExpiredTS()
+			meta := NewMetaFactory().GetCollectionMeta(1, "test", schemapb.DataType_Int64)
+			metaCache := metacache.NewMockMetaCache(t)
+			metaCache.EXPECT().Schema().Return(meta.GetSchema()).Maybe()
+			metaCache.EXPECT().GetSegmentByID(mock.Anything).RunAndReturn(func(id int64, filters ...metacache.SegmentFilter) (*metacache.SegmentInfo, bool) {
+				segment := metacache.NewSegmentInfo(&datapb.SegmentInfo{
+					CollectionID: 1,
+					PartitionID:  0,
+					ID:           id,
+					NumOfRows:    0,
+				}, nil)
+				return segment, true
+			})
+
+			var allPaths [][]string
+			inpath, err := mockbIO.uploadInsertLog(context.Background(), 1, 0, iData, meta)
+			assert.NoError(t, err)
+			assert.Equal(t, 12, len(inpath))
+			binlogNum := len(inpath[0].GetBinlogs())
+			assert.Equal(t, 1, binlogNum)
+
+			for idx := 0; idx < binlogNum; idx++ {
+				var ps []string
+				for _, path := range inpath {
+					ps = append(ps, path.GetBinlogs()[idx].GetLogPath())
+				}
+				allPaths = append(allPaths, ps)
+			}
+
+			dm := map[interface{}]Timestamp{
+				1: 10000,
+			}
+
+			ct := &compactionTask{
+				metaCache:  metaCache,
+				downloader: mockbIO,
+				uploader:   mockbIO,
+				done:       make(chan struct{}, 1),
+				plan: &datapb.CompactionPlan{
+					SegmentBinlogs: []*datapb.CompactionSegmentBinlogs{
+						{SegmentID: 1},
+					},
+				},
+			}
+			_, _, _, err = ct.merge(context.Background(), allPaths, 2, 0, &etcdpb.CollectionMeta{
+				Schema: meta.GetSchema(),
+			}, dm)
+			assert.Error(t, err)
+			t.Log(err)
 		})
 
 		t.Run("Merge with meta error", func(t *testing.T) {
@@ -505,7 +555,10 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			}
 
 			ct := &compactionTask{
-				Channel: channel, downloader: mockbIO, uploader: mockbIO, done: make(chan struct{}, 1),
+				metaCache:  metaCache,
+				downloader: mockbIO,
+				uploader:   mockbIO,
+				done:       make(chan struct{}, 1),
 				plan: &datapb.CompactionPlan{
 					SegmentBinlogs: []*datapb.CompactionSegmentBinlogs{
 						{SegmentID: 1},
@@ -547,7 +600,12 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 				1: 10000,
 			}
 
-			ct := &compactionTask{Channel: channel, downloader: mockbIO, uploader: mockbIO, done: make(chan struct{}, 1)}
+			ct := &compactionTask{
+				metaCache:  metaCache,
+				downloader: mockbIO,
+				uploader:   mockbIO,
+				done:       make(chan struct{}, 1),
+			}
 
 			_, _, _, err = ct.merge(context.Background(), allPaths, 2, 0, &etcdpb.CollectionMeta{
 				Schema: &schemapb.CollectionSchema{Fields: []*schemapb.FieldSchema{
@@ -559,7 +617,6 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			assert.Error(t, err)
 		})
 	})
-
 	t.Run("Test isExpiredEntity", func(t *testing.T) {
 		t.Run("When CompactionEntityExpiration is set math.MaxInt64", func(t *testing.T) {
 			ct := &compactionTask{
@@ -633,11 +690,10 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 	})
 
 	t.Run("Test getNumRows error", func(t *testing.T) {
-		cm := &mockCm{}
-		broker := broker.NewMockBroker(t)
-
+		metaCache := metacache.NewMockMetaCache(t)
+		metaCache.EXPECT().GetSegmentByID(mock.Anything).Return(nil, false)
 		ct := &compactionTask{
-			Channel: newChannel("channel", 1, nil, broker, cm),
+			metaCache: metaCache,
 			plan: &datapb.CompactionPlan{
 				SegmentBinlogs: []*datapb.CompactionSegmentBinlogs{
 					{
@@ -648,9 +704,8 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			done: make(chan struct{}, 1),
 		}
 
-		// segment not in channel
 		_, err := ct.getNumRows()
-		assert.Error(t, err)
+		assert.Error(t, err, "segment not found")
 	})
 
 	t.Run("Test uploadRemainLog error", func(t *testing.T) {
@@ -694,23 +749,25 @@ func TestCompactionTaskInnerMethods(t *testing.T) {
 			alloc.EXPECT().AllocOne().Call.Return(int64(11111), nil)
 
 			meta := f.GetCollectionMeta(UniqueID(10001), "test_upload_remain_log", schemapb.DataType_Int64)
-			stats := storage.NewPrimaryKeyStats(106, int64(schemapb.DataType_Int64), 10)
+			stats, err := storage.NewPrimaryKeyStats(106, int64(schemapb.DataType_Int64), 10)
+
+			require.NoError(t, err)
 
 			ct := &compactionTask{
 				uploader: &binlogIO{&mockCm{errSave: true}, alloc},
 				done:     make(chan struct{}, 1),
 			}
 
-			_, _, err := ct.uploadRemainLog(ctx, 1, 2, meta, stats, 10, nil, nil)
+			_, _, err = ct.uploadRemainLog(ctx, 1, 2, meta, stats, 10, nil, nil)
 			assert.Error(t, err)
 		})
 	})
 }
 
 func getInt64DeltaBlobs(segID UniqueID, pks []UniqueID, tss []Timestamp) ([]*Blob, error) {
-	primaryKeys := make([]primaryKey, len(pks))
+	primaryKeys := make([]storage.PrimaryKey, len(pks))
 	for index, v := range pks {
-		primaryKeys[index] = newInt64PrimaryKey(v)
+		primaryKeys[index] = storage.NewInt64PrimaryKey(v)
 	}
 	deltaData := &DeleteData{
 		Pks:      primaryKeys,
@@ -740,12 +797,18 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 		alloc := allocator.NewMockAllocator(t)
 		alloc.EXPECT().AllocOne().Call.Return(int64(11111), nil)
 		ctx, cancel := context.WithCancel(context.TODO())
+		metaCache := metacache.NewMockMetaCache(t)
+		metaCache.EXPECT().Collection().Return(1)
+		metaCache.EXPECT().GetSegmentByID(mock.Anything).Return(nil, false)
+		syncMgr := syncmgr.NewMockSyncManager(t)
+		syncMgr.EXPECT().Unblock(mock.Anything).Return()
 		emptyTask := &compactionTask{
-			ctx:     ctx,
-			cancel:  cancel,
-			done:    make(chan struct{}, 1),
-			Channel: &ChannelMeta{},
-			tr:      timerecord.NewTimeRecorder("test"),
+			ctx:       ctx,
+			cancel:    cancel,
+			done:      make(chan struct{}, 1),
+			metaCache: metaCache,
+			syncMgr:   syncMgr,
+			tr:        timerecord.NewTimeRecorder("test"),
 		}
 
 		plan := &datapb.CompactionPlan{
@@ -779,8 +842,8 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 			pkType schemapb.DataType
 			iData1 storage.FieldData
 			iData2 storage.FieldData
-			pks1   [2]primaryKey
-			pks2   [2]primaryKey
+			pks1   [2]storage.PrimaryKey
+			pks2   [2]storage.PrimaryKey
 			colID  UniqueID
 			parID  UniqueID
 			segID1 UniqueID
@@ -791,8 +854,8 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 				pkType: schemapb.DataType_Int64,
 				iData1: &storage.Int64FieldData{Data: []UniqueID{1}},
 				iData2: &storage.Int64FieldData{Data: []UniqueID{9}},
-				pks1:   [2]primaryKey{newInt64PrimaryKey(1), newInt64PrimaryKey(2)},
-				pks2:   [2]primaryKey{newInt64PrimaryKey(9), newInt64PrimaryKey(10)},
+				pks1:   [2]storage.PrimaryKey{storage.NewInt64PrimaryKey(1), storage.NewInt64PrimaryKey(2)},
+				pks2:   [2]storage.PrimaryKey{storage.NewInt64PrimaryKey(9), storage.NewInt64PrimaryKey(10)},
 				colID:  1,
 				parID:  10,
 				segID1: 100,
@@ -802,8 +865,8 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 				pkType: schemapb.DataType_VarChar,
 				iData1: &storage.StringFieldData{Data: []string{"aaaa"}},
 				iData2: &storage.StringFieldData{Data: []string{"milvus"}},
-				pks1:   [2]primaryKey{newVarCharPrimaryKey("aaaa"), newVarCharPrimaryKey("bbbb")},
-				pks2:   [2]primaryKey{newVarCharPrimaryKey("milvus"), newVarCharPrimaryKey("mmmm")},
+				pks1:   [2]storage.PrimaryKey{storage.NewVarCharPrimaryKey("aaaa"), storage.NewVarCharPrimaryKey("bbbb")},
+				pks2:   [2]storage.PrimaryKey{storage.NewVarCharPrimaryKey("milvus"), storage.NewVarCharPrimaryKey("mmmm")},
 				colID:  2,
 				parID:  11,
 				segID1: 102,
@@ -814,46 +877,66 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 		for _, c := range cases {
 			collName := "test_compact_coll_name"
 			meta := NewMetaFactory().GetCollectionMeta(c.colID, collName, c.pkType)
-			broker := broker.NewMockBroker(t)
-			broker.EXPECT().DescribeCollection(mock.Anything, mock.Anything, mock.Anything).
-				Return(&milvuspb.DescribeCollectionResponse{
-					Status:         merr.Status(nil),
-					Schema:         meta.GetSchema(),
-					CollectionID:   c.colID,
-					CollectionName: collName,
-					ShardsNum:      common.DefaultShardsNum,
-				}, nil)
-			mockfm := &mockFlushManager{}
-			mockKv := memkv.NewMemoryKV()
-			mockbIO := &binlogIO{cm, alloc}
-			channel := newChannel("a", c.colID, nil, broker, cm)
 
-			channel.addFlushedSegmentWithPKs(c.segID1, c.colID, c.parID, 2, c.iData1)
-			channel.addFlushedSegmentWithPKs(c.segID2, c.colID, c.parID, 2, c.iData2)
-			require.True(t, channel.hasSegment(c.segID1, true))
-			require.True(t, channel.hasSegment(c.segID2, true))
+			mockbIO := &binlogIO{cm, alloc}
+			mockKv := memkv.NewMemoryKV()
+			metaCache := metacache.NewMockMetaCache(t)
+			metaCache.EXPECT().Collection().Return(c.colID)
+			metaCache.EXPECT().Schema().Return(meta.GetSchema())
+			syncMgr := syncmgr.NewMockSyncManager(t)
+			syncMgr.EXPECT().Block(mock.Anything).Return()
+
+			bfs := metacache.NewBloomFilterSet()
+			bfs.UpdatePKRange(c.iData1)
+			seg1 := metacache.NewSegmentInfo(&datapb.SegmentInfo{
+				CollectionID: c.colID,
+				PartitionID:  c.parID,
+				ID:           c.segID1,
+				NumOfRows:    2,
+			}, bfs)
+			bfs = metacache.NewBloomFilterSet()
+			bfs.UpdatePKRange(c.iData2)
+			seg2 := metacache.NewSegmentInfo(&datapb.SegmentInfo{
+				CollectionID: c.colID,
+				PartitionID:  c.parID,
+				ID:           c.segID2,
+				NumOfRows:    2,
+			}, bfs)
+
+			metaCache.EXPECT().GetSegmentByID(mock.Anything).RunAndReturn(func(id int64, filters ...metacache.SegmentFilter) (*metacache.SegmentInfo, bool) {
+				switch id {
+				case c.segID1:
+					return seg1, true
+				case c.segID2:
+					return seg2, true
+				default:
+					return nil, false
+				}
+			})
 
 			iData1 := genInsertDataWithPKs(c.pks1, c.pkType)
 			dData1 := &DeleteData{
-				Pks:      []primaryKey{c.pks1[0]},
+				Pks:      []storage.PrimaryKey{c.pks1[0]},
 				Tss:      []Timestamp{20000},
 				RowCount: 1,
 			}
 			iData2 := genInsertDataWithPKs(c.pks2, c.pkType)
 			dData2 := &DeleteData{
-				Pks:      []primaryKey{c.pks2[0]},
+				Pks:      []storage.PrimaryKey{c.pks2[0]},
 				Tss:      []Timestamp{30000},
 				RowCount: 1,
 			}
 
-			stats1 := storage.NewPrimaryKeyStats(1, int64(c.pkType), 1)
+			stats1, err := storage.NewPrimaryKeyStats(1, int64(c.pkType), 1)
+			require.NoError(t, err)
 			iPaths1, sPaths1, err := mockbIO.uploadStatsLog(context.TODO(), c.segID1, c.parID, iData1, stats1, 2, meta)
 			require.NoError(t, err)
 			dPaths1, err := mockbIO.uploadDeltaLog(context.TODO(), c.segID1, c.parID, dData1, meta)
 			require.NoError(t, err)
 			require.Equal(t, 12, len(iPaths1))
 
-			stats2 := storage.NewPrimaryKeyStats(1, int64(c.pkType), 1)
+			stats2, err := storage.NewPrimaryKeyStats(1, int64(c.pkType), 1)
+			require.NoError(t, err)
 			iPaths2, sPaths2, err := mockbIO.uploadStatsLog(context.TODO(), c.segID2, c.parID, iData2, stats2, 2, meta)
 			require.NoError(t, err)
 			dPaths2, err := mockbIO.uploadDeltaLog(context.TODO(), c.segID2, c.parID, dData2, meta)
@@ -882,43 +965,37 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 				Channel:          "channelname",
 			}
 
-			task := newCompactionTask(context.TODO(), mockbIO, mockbIO, channel, mockfm, alloc, plan, nil)
+			task := newCompactionTask(context.TODO(), mockbIO, mockbIO, metaCache, syncMgr, alloc, plan, nil)
 			result, err := task.compact()
 			assert.NoError(t, err)
 			assert.NotNil(t, result)
 
 			assert.Equal(t, plan.GetPlanID(), result.GetPlanID())
-			assert.Equal(t, UniqueID(19530), result.GetSegmentID())
-			assert.Equal(t, int64(2), result.GetNumOfRows())
-			assert.NotEmpty(t, result.InsertLogs)
-			assert.NotEmpty(t, result.Field2StatslogPaths)
+			assert.Equal(t, 1, len(result.GetSegments()))
+
+			segment := result.GetSegments()[0]
+			assert.EqualValues(t, 19530, segment.GetSegmentID())
+			assert.EqualValues(t, 2, segment.GetNumOfRows())
+			assert.NotEmpty(t, segment.InsertLogs)
+			assert.NotEmpty(t, segment.Field2StatslogPaths)
 
 			// New test, remove all the binlogs in memkv
 			err = mockKv.RemoveWithPrefix("/")
 			require.NoError(t, err)
 			plan.PlanID++
 
-			channel.addFlushedSegmentWithPKs(c.segID1, c.colID, c.parID, 2, c.iData1)
-			channel.addFlushedSegmentWithPKs(c.segID2, c.colID, c.parID, 2, c.iData2)
-			channel.removeSegments(19530)
-			require.True(t, channel.hasSegment(c.segID1, true))
-			require.True(t, channel.hasSegment(c.segID2, true))
-			require.False(t, channel.hasSegment(19530, true))
-
 			result, err = task.compact()
 			assert.NoError(t, err)
 			assert.NotNil(t, result)
 
 			assert.Equal(t, plan.GetPlanID(), result.GetPlanID())
-			assert.Equal(t, UniqueID(19530), result.GetSegmentID())
-			assert.Equal(t, int64(2), result.GetNumOfRows())
-			assert.NotEmpty(t, result.InsertLogs)
-			assert.NotEmpty(t, result.Field2StatslogPaths)
+			assert.Equal(t, 1, len(result.GetSegments()))
 
-			assert.Equal(t, 0, mockfm.injectCount())
-			task.injectDone(true)
-			time.Sleep(500 * time.Millisecond)
-			assert.Equal(t, 1, mockfm.injectCount())
+			segment = result.GetSegments()[0]
+			assert.EqualValues(t, 19530, segment.GetSegmentID())
+			assert.EqualValues(t, 2, segment.GetNumOfRows())
+			assert.NotEmpty(t, segment.InsertLogs)
+			assert.NotEmpty(t, segment.Field2StatslogPaths)
 		}
 	})
 
@@ -927,57 +1004,77 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 		// The merged segment 19530 should only contain 2 rows and both pk=2
 		// Both pk = 1 rows of the two segments are compacted.
 		var collID, partID, segID1, segID2 UniqueID = 1, 10, 200, 201
-		var collName string = "test_compact_coll_name"
 
 		alloc := allocator.NewMockAllocator(t)
 		alloc.EXPECT().AllocOne().Call.Return(int64(19530), nil)
 		alloc.EXPECT().GetGenerator(mock.Anything, mock.Anything).Call.Return(validGeneratorFn, nil)
 
 		meta := NewMetaFactory().GetCollectionMeta(collID, "test_compact_coll_name", schemapb.DataType_Int64)
-		broker := broker.NewMockBroker(t)
-		broker.EXPECT().DescribeCollection(mock.Anything, mock.Anything, mock.Anything).
-			Return(&milvuspb.DescribeCollectionResponse{
-				Status:         merr.Status(nil),
-				Schema:         meta.GetSchema(),
-				CollectionID:   collID,
-				CollectionName: collName,
-				ShardsNum:      common.DefaultShardsNum,
-			}, nil)
-		mockfm := &mockFlushManager{}
-		mockbIO := &binlogIO{cm, alloc}
-		channel := newChannel("channelname", collID, nil, broker, cm)
 
-		channel.addFlushedSegmentWithPKs(segID1, collID, partID, 2, &storage.Int64FieldData{Data: []UniqueID{1}})
-		channel.addFlushedSegmentWithPKs(segID2, collID, partID, 2, &storage.Int64FieldData{Data: []UniqueID{1}})
-		require.True(t, channel.hasSegment(segID1, true))
-		require.True(t, channel.hasSegment(segID2, true))
+		mockbIO := &binlogIO{cm, alloc}
+
+		metaCache := metacache.NewMockMetaCache(t)
+		metaCache.EXPECT().Collection().Return(collID)
+		metaCache.EXPECT().Schema().Return(meta.GetSchema())
+		syncMgr := syncmgr.NewMockSyncManager(t)
+		syncMgr.EXPECT().Block(mock.Anything).Return()
+
+		bfs := metacache.NewBloomFilterSet()
+		bfs.UpdatePKRange(&storage.Int64FieldData{Data: []UniqueID{1}})
+		seg1 := metacache.NewSegmentInfo(&datapb.SegmentInfo{
+			CollectionID: collID,
+			PartitionID:  partID,
+			ID:           segID1,
+			NumOfRows:    2,
+		}, bfs)
+		bfs = metacache.NewBloomFilterSet()
+		bfs.UpdatePKRange(&storage.Int64FieldData{Data: []UniqueID{1}})
+		seg2 := metacache.NewSegmentInfo(&datapb.SegmentInfo{
+			CollectionID: collID,
+			PartitionID:  partID,
+			ID:           segID2,
+			NumOfRows:    2,
+		}, bfs)
+
+		metaCache.EXPECT().GetSegmentByID(mock.Anything).RunAndReturn(func(id int64, filters ...metacache.SegmentFilter) (*metacache.SegmentInfo, bool) {
+			switch id {
+			case segID1:
+				return seg1, true
+			case segID2:
+				return seg2, true
+			default:
+				return nil, false
+			}
+		})
 
 		// the same pk for segmentI and segmentII
-		pks := [2]primaryKey{newInt64PrimaryKey(1), newInt64PrimaryKey(2)}
+		pks := [2]storage.PrimaryKey{storage.NewInt64PrimaryKey(1), storage.NewInt64PrimaryKey(2)}
 		iData1 := genInsertDataWithPKs(pks, schemapb.DataType_Int64)
 		iData2 := genInsertDataWithPKs(pks, schemapb.DataType_Int64)
 
-		pk1 := newInt64PrimaryKey(1)
+		pk1 := storage.NewInt64PrimaryKey(1)
 		dData1 := &DeleteData{
-			Pks:      []primaryKey{pk1},
+			Pks:      []storage.PrimaryKey{pk1},
 			Tss:      []Timestamp{20000},
 			RowCount: 1,
 		}
 		// empty dData2
 		dData2 := &DeleteData{
-			Pks:      []primaryKey{},
+			Pks:      []storage.PrimaryKey{},
 			Tss:      []Timestamp{},
 			RowCount: 0,
 		}
 
-		stats1 := storage.NewPrimaryKeyStats(1, int64(schemapb.DataType_Int64), 1)
+		stats1, err := storage.NewPrimaryKeyStats(1, int64(schemapb.DataType_Int64), 1)
+		require.NoError(t, err)
 		iPaths1, sPaths1, err := mockbIO.uploadStatsLog(context.TODO(), segID1, partID, iData1, stats1, 1, meta)
 		require.NoError(t, err)
 		dPaths1, err := mockbIO.uploadDeltaLog(context.TODO(), segID1, partID, dData1, meta)
 		require.NoError(t, err)
 		require.Equal(t, 12, len(iPaths1))
 
-		stats2 := storage.NewPrimaryKeyStats(1, int64(schemapb.DataType_Int64), 1)
+		stats2, err := storage.NewPrimaryKeyStats(1, int64(schemapb.DataType_Int64), 1)
+		require.NoError(t, err)
 		iPaths2, sPaths2, err := mockbIO.uploadStatsLog(context.TODO(), segID2, partID, iData2, stats2, 1, meta)
 		require.NoError(t, err)
 		dPaths2, err := mockbIO.uploadDeltaLog(context.TODO(), segID2, partID, dData2, meta)
@@ -1006,79 +1103,18 @@ func TestCompactorInterfaceMethods(t *testing.T) {
 			Channel:          "channelname",
 		}
 
-		task := newCompactionTask(context.TODO(), mockbIO, mockbIO, channel, mockfm, alloc, plan, nil)
+		task := newCompactionTask(context.TODO(), mockbIO, mockbIO, metaCache, syncMgr, alloc, plan, nil)
 		result, err := task.compact()
 		assert.NoError(t, err)
 		assert.NotNil(t, result)
 
 		assert.Equal(t, plan.GetPlanID(), result.GetPlanID())
-		assert.Equal(t, UniqueID(19530), result.GetSegmentID())
-		assert.Equal(t, int64(2), result.GetNumOfRows())
-		assert.NotEmpty(t, result.InsertLogs)
-		assert.NotEmpty(t, result.Field2StatslogPaths)
+		assert.Equal(t, 1, len(result.GetSegments()))
 
-		assert.Equal(t, 0, mockfm.injectCount())
-		task.injectDone(true)
-		time.Sleep(500 * time.Millisecond)
-		assert.Equal(t, 1, mockfm.injectCount())
+		segment := result.GetSegments()[0]
+		assert.EqualValues(t, 19530, segment.GetSegmentID())
+		assert.EqualValues(t, 2, segment.GetNumOfRows())
+		assert.NotEmpty(t, segment.InsertLogs)
+		assert.NotEmpty(t, segment.Field2StatslogPaths)
 	})
 }
-
-type mockFlushManager struct {
-	sleepSeconds     int32
-	returnError      bool
-	recordFlushedSeg bool
-	flushedSegIDs    []UniqueID
-	full             bool
-	injectOverCount  struct {
-		sync.RWMutex
-		value int
-	}
-}
-
-var _ flushManager = (*mockFlushManager)(nil)
-
-func (mfm *mockFlushManager) flushBufferData(data *BufferData, segmentID UniqueID, flushed bool, dropped bool, pos *msgpb.MsgPosition) (*storage.PrimaryKeyStats, error) {
-	if mfm.returnError {
-		return nil, fmt.Errorf("mock error")
-	}
-	return nil, nil
-}
-
-func (mfm *mockFlushManager) flushDelData(data *DelDataBuf, segmentID UniqueID, pos *msgpb.MsgPosition) error {
-	if mfm.returnError {
-		return fmt.Errorf("mock error")
-	}
-	if mfm.recordFlushedSeg {
-		mfm.flushedSegIDs = append(mfm.flushedSegIDs, segmentID)
-	}
-	return nil
-}
-
-func (mfm *mockFlushManager) isFull() bool {
-	return mfm.full
-}
-
-func (mfm *mockFlushManager) injectFlush(injection *taskInjection, segments ...UniqueID) {
-	go func() {
-		time.Sleep(time.Second * time.Duration(mfm.sleepSeconds))
-		// injection.injected <- struct{}{}
-		close(injection.injected)
-		<-injection.injectOver
-		mfm.injectOverCount.Lock()
-		defer mfm.injectOverCount.Unlock()
-		mfm.injectOverCount.value++
-	}()
-}
-
-func (mfm *mockFlushManager) injectCount() int {
-	mfm.injectOverCount.RLock()
-	defer mfm.injectOverCount.RUnlock()
-	return mfm.injectOverCount.value
-}
-
-func (mfm *mockFlushManager) notifyAllFlushed() {}
-
-func (mfm *mockFlushManager) startDropping() {}
-
-func (mfm *mockFlushManager) close() {}

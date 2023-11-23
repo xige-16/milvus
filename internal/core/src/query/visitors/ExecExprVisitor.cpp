@@ -36,6 +36,7 @@
 #include "segcore/SegmentGrowingImpl.h"
 #include "simdjson/error.h"
 #include "query/PlanProto.h"
+#include "segcore/SkipIndex.h"
 #include "simd/hook.h"
 
 namespace milvus::query {
@@ -63,11 +64,15 @@ class ExecExprVisitor : ExprVisitor {
     }
 
  public:
-    template <typename T, typename IndexFunc, typename ElementFunc>
+    template <typename T,
+              typename IndexFunc,
+              typename ElementFunc,
+              typename SkipIndexFunc>
     auto
     ExecRangeVisitorImpl(FieldId field_id,
                          IndexFunc func,
-                         ElementFunc element_func) -> BitsetType;
+                         ElementFunc element_func,
+                         SkipIndexFunc skip_index_func) -> BitsetType;
 
     template <typename T>
     auto
@@ -266,11 +271,16 @@ AssembleChunk(const std::vector<FixedVector<bool>>& results) {
     return assemble_result;
 }
 
-template <typename T, typename IndexFunc, typename ElementFunc>
+template <typename T,
+          typename IndexFunc,
+          typename ElementFunc,
+          typename SkipIndexFunc>
 auto
 ExecExprVisitor::ExecRangeVisitorImpl(FieldId field_id,
                                       IndexFunc index_func,
-                                      ElementFunc element_func) -> BitsetType {
+                                      ElementFunc element_func,
+                                      SkipIndexFunc skip_index_func)
+    -> BitsetType {
     auto& schema = segment_.get_schema();
     auto& field_meta = schema[field_id];
     auto indexing_barrier = segment_.num_chunk_index(field_id);
@@ -293,11 +303,18 @@ ExecExprVisitor::ExecRangeVisitorImpl(FieldId field_id,
                    "[ExecExprVisitor]Data size not equal to size_per_chunk");
         results.emplace_back(std::move(data));
     }
+
     for (auto chunk_id = indexing_barrier; chunk_id < num_chunk; ++chunk_id) {
         auto this_size = chunk_id == num_chunk - 1
                              ? row_count_ - chunk_id * size_per_chunk
                              : size_per_chunk;
         FixedVector<bool> chunk_res(this_size);
+        //check possible chunk metrics
+        auto& skipIndex = segment_.GetSkipIndex();
+        if (skip_index_func(skipIndex, field_id, chunk_id)) {
+            results.emplace_back(std::move(chunk_res));
+            continue;
+        }
         auto chunk = segment_.chunk_data<T>(field_id, chunk_id);
         const T* data = chunk.data();
         // Can use CPU SIMD optimazation to speed up
@@ -306,6 +323,7 @@ ExecExprVisitor::ExecRangeVisitorImpl(FieldId field_id,
         }
         results.emplace_back(std::move(chunk_res));
     }
+
     auto final_result = AssembleChunk(results);
     AssertInfo(final_result.size() == row_count_,
                "[ExecExprVisitor]Final result size not equal to row count");
@@ -388,46 +406,86 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherImpl(UnaryRangeExpr& expr_raw)
     auto op = expr.op_type_;
     auto val = IndexInnerType(expr.value_);
     auto field_id = expr.column_.field_id;
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     switch (op) {
         case OpType::Equal: {
             auto index_func = [&](Index* index) { return index->In(1, &val); };
             auto elem_func = [&](MayConstRef<T> x) { return (x == val); };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            auto skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) {
+                return skipIndex.CanSkipUnaryRange<T>(
+                    fieldId, chunkId, OpType::Equal, val);
+            };
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, skip_index_func);
         }
         case OpType::NotEqual: {
             auto index_func = [&](Index* index) {
                 return index->NotIn(1, &val);
             };
             auto elem_func = [&](MayConstRef<T> x) { return (x != val); };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::GreaterEqual: {
             auto index_func = [&](Index* index) {
                 return index->Range(val, OpType::GreaterEqual);
             };
             auto elem_func = [&](MayConstRef<T> x) { return (x >= val); };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            auto skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) {
+                return skipIndex.CanSkipUnaryRange<T>(
+                    fieldId, chunkId, OpType::GreaterEqual, val);
+            };
+
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, skip_index_func);
         }
         case OpType::GreaterThan: {
             auto index_func = [&](Index* index) {
                 return index->Range(val, OpType::GreaterThan);
             };
             auto elem_func = [&](MayConstRef<T> x) { return (x > val); };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            auto skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) {
+                return skipIndex.CanSkipUnaryRange<T>(
+                    fieldId, chunkId, OpType::GreaterThan, val);
+            };
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, skip_index_func);
         }
         case OpType::LessEqual: {
             auto index_func = [&](Index* index) {
                 return index->Range(val, OpType::LessEqual);
             };
             auto elem_func = [&](MayConstRef<T> x) { return (x <= val); };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            auto skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) {
+                return skipIndex.CanSkipUnaryRange<T>(
+                    fieldId, chunkId, OpType::LessEqual, val);
+            };
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, skip_index_func);
         }
         case OpType::LessThan: {
             auto index_func = [&](Index* index) {
                 return index->Range(val, OpType::LessThan);
             };
             auto elem_func = [&](MayConstRef<T> x) { return (x < val); };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            auto skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) {
+                return skipIndex.CanSkipUnaryRange<T>(
+                    fieldId, chunkId, OpType::LessThan, val);
+            };
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, skip_index_func);
         }
         case OpType::PrefixMatch: {
             auto index_func = [&](Index* index) {
@@ -439,7 +497,8 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherImpl(UnaryRangeExpr& expr_raw)
             auto elem_func = [&](MayConstRef<T> x) {
                 return Match(x, val, op);
             };
-            return ExecRangeVisitorImpl<T>(field_id, index_func, elem_func);
+            return ExecRangeVisitorImpl<T>(
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         // TODO: PostfixMatch
         default: {
@@ -607,7 +666,9 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
         }                                                     \
         return (cmp);                                         \
     } while (false)
-
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     switch (op) {
         case OpType::Equal: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -623,7 +684,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::NotEqual: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -639,7 +700,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::GreaterEqual: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -650,7 +711,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::GreaterThan: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -661,7 +722,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::LessEqual: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -672,7 +733,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::LessThan: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -683,7 +744,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::PrefixMatch: {
             auto elem_func = [&](const milvus::Json& json) {
@@ -695,7 +756,7 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherJson(UnaryRangeExpr& expr_raw)
                 }
             };
             return ExecRangeVisitorImpl<milvus::Json>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         // TODO: PostfixMatch
         default: {
@@ -724,91 +785,114 @@ ExecExprVisitor::ExecUnaryRangeVisitorDispatcherArray(UnaryRangeExpr& expr_raw)
         std::conditional_t<std::is_same_v<ExprValueType, std::string>,
                            std::string_view,
                            ExprValueType>;
-
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     switch (op) {
         case OpType::Equal: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return array.is_same_array(val);
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return array_data == val;
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::NotEqual: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return !array.is_same_array(val);
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return array_data != val;
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::GreaterEqual: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return false;
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return array_data >= val;
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::GreaterThan: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return false;
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return array_data > val;
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::LessEqual: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return false;
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return array_data <= val;
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::LessThan: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return false;
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return array_data < val;
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         case OpType::PrefixMatch: {
             auto elem_func = [&](const milvus::ArrayView& array) {
                 if constexpr (std::is_same_v<GetType, proto::plan::Array>) {
                     return false;
                 } else {
+                    if (index >= array.length()) {
+                        return false;
+                    }
                     auto array_data = array.template get_data<GetType>(index);
                     return Match(array_data, val, op);
                 }
             };
             return ExecRangeVisitorImpl<milvus::ArrayView>(
-                field_id, index_func, elem_func);
+                field_id, index_func, elem_func, default_skip_index_func);
         }
         // TODO: PostfixMatch
         default: {
@@ -1247,6 +1331,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value + right_operand == val;
                     };
@@ -1259,6 +1346,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value - right_operand == val;
                     };
@@ -1271,6 +1361,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value * right_operand == val;
                     };
@@ -1283,6 +1376,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value / right_operand == val;
                     };
@@ -1295,6 +1391,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return static_cast<ExprValueType>(
                                    fmod(value, right_operand)) == val;
@@ -1328,6 +1427,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value + right_operand != val;
                     };
@@ -1340,6 +1442,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value - right_operand != val;
                     };
@@ -1352,6 +1457,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value * right_operand != val;
                     };
@@ -1364,6 +1472,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return value / right_operand != val;
                     };
@@ -1376,6 +1487,9 @@ ExecExprVisitor::ExecBinaryArithOpEvalRangeVisitorDispatcherArray(
                         return false;
                     };
                     auto elem_func = [&](const milvus::ArrayView& array) {
+                        if (index >= array.length()) {
+                            return false;
+                        }
                         auto value = array.get_data<GetType>(index);
                         return static_cast<ExprValueType>(
                                    fmod(value, right_operand)) != val;
@@ -1457,31 +1571,54 @@ ExecExprVisitor::ExecBinaryRangeVisitorDispatcher(BinaryRangeExpr& expr_raw)
     auto index_func = [=](Index* index) {
         return index->Range(val1, lower_inclusive, val2, upper_inclusive);
     };
-
     if (lower_inclusive && upper_inclusive) {
         auto elem_func = [val1, val2](MayConstRef<T> x) {
             return (val1 <= x && x <= val2);
         };
+        auto skip_index_func = [&](const SkipIndex& skip_index,
+                                   FieldId field_id,
+                                   int64_t chunk_id) {
+            return skip_index.CanSkipBinaryRange<T>(
+                field_id, chunk_id, val1, val2, true, true);
+        };
         return ExecRangeVisitorImpl<T>(
-            expr.column_.field_id, index_func, elem_func);
+            expr.column_.field_id, index_func, elem_func, skip_index_func);
     } else if (lower_inclusive && !upper_inclusive) {
         auto elem_func = [val1, val2](MayConstRef<T> x) {
             return (val1 <= x && x < val2);
         };
+        auto skip_index_func = [&](const SkipIndex& skip_index,
+                                   FieldId field_id,
+                                   int64_t chunk_id) {
+            return skip_index.CanSkipBinaryRange<T>(
+                field_id, chunk_id, val1, val2, true, false);
+        };
         return ExecRangeVisitorImpl<T>(
-            expr.column_.field_id, index_func, elem_func);
+            expr.column_.field_id, index_func, elem_func, skip_index_func);
     } else if (!lower_inclusive && upper_inclusive) {
         auto elem_func = [val1, val2](MayConstRef<T> x) {
             return (val1 < x && x <= val2);
         };
+        auto skip_index_func = [&](const SkipIndex& skip_index,
+                                   FieldId field_id,
+                                   int64_t chunk_id) {
+            return skip_index.CanSkipBinaryRange<T>(
+                field_id, chunk_id, val1, val2, false, true);
+        };
         return ExecRangeVisitorImpl<T>(
-            expr.column_.field_id, index_func, elem_func);
+            expr.column_.field_id, index_func, elem_func, skip_index_func);
     } else {
         auto elem_func = [val1, val2](MayConstRef<T> x) {
             return (val1 < x && x < val2);
         };
+        auto skip_index_func = [&](const SkipIndex& skip_index,
+                                   FieldId field_id,
+                                   int64_t chunk_id) {
+            return skip_index.CanSkipBinaryRange<T>(
+                field_id, chunk_id, val1, val2, false, false);
+        };
         return ExecRangeVisitorImpl<T>(
-            expr.column_.field_id, index_func, elem_func);
+            expr.column_.field_id, index_func, elem_func, skip_index_func);
     }
 }
 #pragma clang diagnostic pop
@@ -1505,6 +1642,9 @@ ExecExprVisitor::ExecBinaryRangeVisitorDispatcherJson(BinaryRangeExpr& expr_raw)
 
     // no json index now
     auto index_func = [=](Index* index) { return TargetBitmap{}; };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
 
 #define BinaryRangeJSONCompare(cmp)                           \
     do {                                                      \
@@ -1527,26 +1667,34 @@ ExecExprVisitor::ExecBinaryRangeVisitorDispatcherJson(BinaryRangeExpr& expr_raw)
         auto elem_func = [&](const milvus::Json& json) {
             BinaryRangeJSONCompare(val1 <= value && value <= val2);
         };
-        return ExecRangeVisitorImpl<milvus::Json>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::Json>(expr.column_.field_id,
+                                                  index_func,
+                                                  elem_func,
+                                                  default_skip_index_func);
     } else if (lower_inclusive && !upper_inclusive) {
         auto elem_func = [&](const milvus::Json& json) {
             BinaryRangeJSONCompare(val1 <= value && value < val2);
         };
-        return ExecRangeVisitorImpl<milvus::Json>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::Json>(expr.column_.field_id,
+                                                  index_func,
+                                                  elem_func,
+                                                  default_skip_index_func);
     } else if (!lower_inclusive && upper_inclusive) {
         auto elem_func = [&](const milvus::Json& json) {
             BinaryRangeJSONCompare(val1 < value && value <= val2);
         };
-        return ExecRangeVisitorImpl<milvus::Json>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::Json>(expr.column_.field_id,
+                                                  index_func,
+                                                  elem_func,
+                                                  default_skip_index_func);
     } else {
         auto elem_func = [&](const milvus::Json& json) {
             BinaryRangeJSONCompare(val1 < value && value < val2);
         };
-        return ExecRangeVisitorImpl<milvus::Json>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::Json>(expr.column_.field_id,
+                                                  index_func,
+                                                  elem_func,
+                                                  default_skip_index_func);
     }
 }
 
@@ -1572,35 +1720,58 @@ ExecExprVisitor::ExecBinaryRangeVisitorDispatcherArray(
 
     // no json index now
     auto index_func = [=](Index* index) { return TargetBitmap{}; };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
 
     if (lower_inclusive && upper_inclusive) {
         auto elem_func = [&](const milvus::ArrayView& array) {
+            if (index >= array.length()) {
+                return false;
+            }
             auto value = array.get_data<GetType>(index);
             return val1 <= value && value <= val2;
         };
-        return ExecRangeVisitorImpl<milvus::ArrayView>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::ArrayView>(expr.column_.field_id,
+                                                       index_func,
+                                                       elem_func,
+                                                       default_skip_index_func);
     } else if (lower_inclusive && !upper_inclusive) {
         auto elem_func = [&](const milvus::ArrayView& array) {
+            if (index >= array.length()) {
+                return false;
+            }
             auto value = array.get_data<GetType>(index);
             return val1 <= value && value < val2;
         };
-        return ExecRangeVisitorImpl<milvus::ArrayView>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::ArrayView>(expr.column_.field_id,
+                                                       index_func,
+                                                       elem_func,
+                                                       default_skip_index_func);
     } else if (!lower_inclusive && upper_inclusive) {
         auto elem_func = [&](const milvus::ArrayView& array) {
+            if (index >= array.length()) {
+                return false;
+            }
             auto value = array.get_data<GetType>(index);
             return val1 < value && value <= val2;
         };
-        return ExecRangeVisitorImpl<milvus::ArrayView>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::ArrayView>(expr.column_.field_id,
+                                                       index_func,
+                                                       elem_func,
+                                                       default_skip_index_func);
     } else {
         auto elem_func = [&](const milvus::ArrayView& array) {
+            if (index >= array.length()) {
+                return false;
+            }
             auto value = array.get_data<GetType>(index);
             return val1 < value && value < val2;
         };
-        return ExecRangeVisitorImpl<milvus::ArrayView>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::ArrayView>(expr.column_.field_id,
+                                                       index_func,
+                                                       elem_func,
+                                                       default_skip_index_func);
     }
 }
 
@@ -2427,8 +2598,11 @@ ExecExprVisitor::ExecTermVisitorImplTemplate(TermExpr& expr_raw) -> BitsetType {
     };
 #endif
 
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     return ExecRangeVisitorImpl<T>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 // TODO: bool is so ugly here.
@@ -2459,9 +2633,19 @@ ExecExprVisitor::ExecTermVisitorImplTemplate<bool>(TermExpr& expr_raw)
         // return std::binary_search(terms.begin(), terms.end(), x);
         return term_set.find(x) != term_set.end();
     };
+    auto skip_index_func =
+        [&](const SkipIndex& skipIndex, FieldId fieldId, int64_t chunkId) {
+            for (const auto& term : term_set) {
+                if (!skipIndex.CanSkipUnaryRange(
+                        fieldId, chunkId, OpType::Equal, term)) {
+                    return false;
+                }
+            }
+            return true;
+        };
 
     return ExecRangeVisitorImpl<T>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2475,10 +2659,15 @@ ExecExprVisitor::ExecTermJsonFieldInVariable(TermExpr& expr_raw) -> BitsetType {
     std::unordered_set<ExprValueType> term_set(expr.terms_.begin(),
                                                expr.terms_.end());
 
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     if (term_set.empty()) {
         auto elem_func = [=](const milvus::Json& json) { return false; };
-        return ExecRangeVisitorImpl<milvus::Json>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::Json>(expr.column_.field_id,
+                                                  index_func,
+                                                  elem_func,
+                                                  default_skip_index_func);
     }
 
     auto elem_func = [&term_set, &pointer](const milvus::Json& json) {
@@ -2505,7 +2694,7 @@ ExecExprVisitor::ExecTermJsonFieldInVariable(TermExpr& expr_raw) -> BitsetType {
     };
 
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2515,6 +2704,9 @@ ExecExprVisitor::ExecTermArrayFieldInVariable(TermExpr& expr_raw)
     using Index = index::ScalarIndex<milvus::ArrayView>;
     auto& expr = static_cast<TermExprImpl<ExprValueType>&>(expr_raw);
     auto index_func = [](Index* index) { return TargetBitmap{}; };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     int index = -1;
     if (expr.column_.nested_path.size() > 0) {
         index = std::stoi(expr.column_.nested_path[0]);
@@ -2528,17 +2720,21 @@ ExecExprVisitor::ExecTermArrayFieldInVariable(TermExpr& expr_raw)
 
     if (term_set.empty()) {
         auto elem_func = [=](const milvus::ArrayView& array) { return false; };
-        return ExecRangeVisitorImpl<milvus::ArrayView>(
-            expr.column_.field_id, index_func, elem_func);
+        return ExecRangeVisitorImpl<milvus::ArrayView>(expr.column_.field_id,
+                                                       index_func,
+                                                       elem_func,
+                                                       default_skip_index_func);
     }
 
     auto elem_func = [&term_set, &index](const milvus::ArrayView& array) {
+        if (index >= array.length()) {
+            return false;
+        }
         auto value = array.get_data<GetType>(index);
         return term_set.find(ExprValueType(value)) != term_set.end();
     };
-
     return ExecRangeVisitorImpl<milvus::ArrayView>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2548,6 +2744,9 @@ ExecExprVisitor::ExecTermJsonVariableInField(TermExpr& expr_raw) -> BitsetType {
     auto& expr = static_cast<TermExprImpl<ExprValueType>&>(expr_raw);
     auto pointer = milvus::Json::pointer(expr.column_.nested_path);
     auto index_func = [](Index* index) { return TargetBitmap{}; };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
 
     AssertInfo(expr.terms_.size() == 1,
                "element length in json array must be one");
@@ -2573,9 +2772,8 @@ ExecExprVisitor::ExecTermJsonVariableInField(TermExpr& expr_raw) -> BitsetType {
         }
         return false;
     };
-
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2589,7 +2787,9 @@ ExecExprVisitor::ExecTermArrayVariableInField(TermExpr& expr_raw)
     AssertInfo(expr.terms_.size() == 1,
                "element length in json array must be one");
     ExprValueType target_val = expr.terms_[0];
-
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     auto elem_func = [&target_val](const milvus::ArrayView& array) {
         using GetType =
             std::conditional_t<std::is_same_v<ExprValueType, std::string>,
@@ -2605,7 +2805,7 @@ ExecExprVisitor::ExecTermArrayVariableInField(TermExpr& expr_raw)
     };
 
     return ExecRangeVisitorImpl<milvus::ArrayView>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2747,8 +2947,15 @@ ExecExprVisitor::visit(ExistsExpr& expr) {
                 auto x = json.exist(pointer);
                 return x;
             };
-            res = ExecRangeVisitorImpl<milvus::Json>(
-                expr.column_.field_id, index_func, elem_func);
+            auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                               FieldId fieldId,
+                                               int64_t chunkId) {
+                return false;
+            };
+            res = ExecRangeVisitorImpl<milvus::Json>(expr.column_.field_id,
+                                                     index_func,
+                                                     elem_func,
+                                                     default_skip_index_func);
             break;
         }
         default:
@@ -2800,9 +3007,11 @@ ExecExprVisitor::ExecJsonContains(JsonContainsExpr& expr_raw) -> BitsetType {
         }
         return false;
     };
-
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2830,8 +3039,11 @@ ExecExprVisitor::ExecArrayContains(JsonContainsExpr& expr_raw) -> BitsetType {
         return false;
     };
 
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     return ExecRangeVisitorImpl<milvus::ArrayView>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 auto
@@ -2868,9 +3080,11 @@ ExecExprVisitor::ExecJsonContainsArray(JsonContainsExpr& expr_raw)
         }
         return false;
     };
-
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 auto
@@ -2951,9 +3165,12 @@ ExecExprVisitor::ExecJsonContainsWithDiffType(JsonContainsExpr& expr_raw)
         }
         return false;
     };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
 
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -2993,9 +3210,12 @@ ExecExprVisitor::ExecJsonContainsAll(JsonContainsExpr& expr_raw) -> BitsetType {
         }
         return tmp_elements.size() == 0;
     };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
 
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 template <typename ExprValueType>
@@ -3028,9 +3248,11 @@ ExecExprVisitor::ExecArrayContainsAll(JsonContainsExpr& expr_raw)
         }
         return tmp_elements.size() == 0;
     };
-
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
     return ExecRangeVisitorImpl<milvus::ArrayView>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 auto
@@ -3073,8 +3295,12 @@ ExecExprVisitor::ExecJsonContainsAllArray(JsonContainsExpr& expr_raw)
         return exist_elements_index.size() == elements.size();
     };
 
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
+
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 auto
@@ -3171,9 +3397,12 @@ ExecExprVisitor::ExecJsonContainsAllWithDiffType(JsonContainsExpr& expr_raw)
             }
             return tmp_elements_index.size() == 0;
         };
+    auto default_skip_index_func = [&](const SkipIndex& skipIndex,
+                                       FieldId fieldId,
+                                       int64_t chunkId) { return false; };
 
     return ExecRangeVisitorImpl<milvus::Json>(
-        expr.column_.field_id, index_func, elem_func);
+        expr.column_.field_id, index_func, elem_func, default_skip_index_func);
 }
 
 void

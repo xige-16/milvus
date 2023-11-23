@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/atomic"
 
 	"github.com/milvus-io/milvus/internal/kv"
 	"github.com/milvus-io/milvus/internal/proto/datapb"
@@ -74,14 +75,8 @@ func waitAndCheckState(t *testing.T, kv kv.MetaKv, expectedState datapb.ChannelW
 	}
 }
 
-func getOpsWithWatchInfo(nodeID UniqueID, ch *channel) ChannelOpSet {
-	var ops ChannelOpSet
-	ops.Add(nodeID, []*channel{ch})
-
-	for _, op := range ops {
-		op.ChannelWatchInfos = []*datapb.ChannelWatchInfo{{}}
-	}
-	return ops
+func getTestOps(nodeID UniqueID, ch RWChannel) *ChannelOpSet {
+	return NewChannelOpSet(NewAddOp(nodeID, ch))
 }
 
 func TestChannelManager_StateTransfer(t *testing.T) {
@@ -121,9 +116,9 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		}()
 
 		chManager.AddNode(nodeID)
-		chManager.Watch(ctx, &channel{Name: cName, CollectionID: collectionID})
+		chManager.Watch(ctx, &channelMeta{Name: cName, CollectionID: collectionID})
 
-		key := path.Join(prefix, strconv.FormatInt(nodeID, 10), cName)
+		key := buildNodeChannelKey(nodeID, cName)
 		waitAndStore(t, watchkv, key, datapb.ChannelWatchState_ToWatch, datapb.ChannelWatchState_WatchSuccess)
 		waitAndCheckState(t, watchkv, datapb.ChannelWatchState_WatchSuccess, nodeID, cName, collectionID)
 
@@ -151,7 +146,7 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		}()
 
 		chManager.AddNode(nodeID)
-		chManager.Watch(ctx, &channel{Name: cName, CollectionID: collectionID})
+		chManager.Watch(ctx, &channelMeta{Name: cName, CollectionID: collectionID})
 
 		key := path.Join(prefix, strconv.FormatInt(nodeID, 10), cName)
 		waitAndStore(t, watchkv, key, datapb.ChannelWatchState_ToWatch, datapb.ChannelWatchState_WatchFailure)
@@ -182,7 +177,7 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		}()
 
 		chManager.AddNode(nodeID)
-		chManager.Watch(ctx, &channel{Name: cName, CollectionID: collectionID})
+		chManager.Watch(ctx, &channelMeta{Name: cName, CollectionID: collectionID})
 
 		// simulating timeout behavior of startOne, cuz 20s is a long wait
 		e := &ackEvent{
@@ -222,10 +217,10 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{
-					{Name: cName, CollectionID: collectionID},
+				nodeID: {nodeID, []RWChannel{
+					&channelMeta{Name: cName, CollectionID: collectionID},
 				}},
-				oldNode: {oldNode, []*channel{}},
+				oldNode: {oldNode, []RWChannel{}},
 			},
 		}
 
@@ -265,8 +260,8 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{
-					{Name: cName, CollectionID: collectionID},
+				nodeID: {nodeID, []RWChannel{
+					&channelMeta{Name: cName, CollectionID: collectionID},
 				}},
 			},
 		}
@@ -311,10 +306,10 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{
-					{Name: cName, CollectionID: collectionID},
+				nodeID: {nodeID, []RWChannel{
+					&channelMeta{Name: cName, CollectionID: collectionID},
 				}},
-				oldNode: {oldNode, []*channel{}},
+				oldNode: {oldNode, []RWChannel{}},
 			},
 		}
 
@@ -357,8 +352,8 @@ func TestChannelManager_StateTransfer(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{
-					{Name: cName, CollectionID: collectionID},
+				nodeID: {nodeID, []RWChannel{
+					&channelMeta{Name: cName, CollectionID: collectionID},
 				}},
 			},
 		}
@@ -388,6 +383,8 @@ func TestChannelManager(t *testing.T) {
 		watchkv.Close()
 	}()
 
+	Params.Save(Params.DataCoordCfg.AutoBalance.Key, "true")
+
 	prefix := Params.CommonCfg.DataCoordWatchSubPath.GetValue()
 	t.Run("test AddNode with avalible node", func(t *testing.T) {
 		// Note: this test is based on the default registerPolicy
@@ -403,9 +400,9 @@ func TestChannelManager(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{
-					{Name: channel1, CollectionID: collectionID},
-					{Name: channel2, CollectionID: collectionID},
+				nodeID: {nodeID, []RWChannel{
+					&channelMeta{Name: channel1, CollectionID: collectionID},
+					&channelMeta{Name: channel2, CollectionID: collectionID},
 				}},
 			},
 		}
@@ -418,7 +415,7 @@ func TestChannelManager(t *testing.T) {
 		assert.False(t, chManager.Match(nodeToAdd, channel1))
 		assert.False(t, chManager.Match(nodeToAdd, channel2))
 
-		err = chManager.Watch(context.TODO(), &channel{Name: "channel-3", CollectionID: collectionID})
+		err = chManager.Watch(context.TODO(), &channelMeta{Name: "channel-3", CollectionID: collectionID})
 		assert.NoError(t, err)
 
 		assert.True(t, chManager.Match(nodeToAdd, "channel-3"))
@@ -441,9 +438,9 @@ func TestChannelManager(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				bufferID: {bufferID, []*channel{
-					{Name: channel1, CollectionID: collectionID},
-					{Name: channel2, CollectionID: collectionID},
+				bufferID: {bufferID, []RWChannel{
+					&channelMeta{Name: channel1, CollectionID: collectionID},
+					&channelMeta{Name: channel2, CollectionID: collectionID},
 				}},
 			},
 		}
@@ -460,7 +457,7 @@ func TestChannelManager(t *testing.T) {
 		assert.True(t, chManager.Match(nodeID, channel1))
 		assert.True(t, chManager.Match(nodeID, channel2))
 
-		err = chManager.Watch(context.TODO(), &channel{Name: "channel-3", CollectionID: collectionID})
+		err = chManager.Watch(context.TODO(), &channelMeta{Name: "channel-3", CollectionID: collectionID})
 		assert.NoError(t, err)
 
 		waitAndCheckState(t, watchkv, datapb.ChannelWatchState_ToWatch, nodeID, "channel-3", collectionID)
@@ -479,13 +476,13 @@ func TestChannelManager(t *testing.T) {
 		chManager, err := NewChannelManager(watchkv, newMockHandler())
 		require.NoError(t, err)
 
-		err = chManager.Watch(context.TODO(), &channel{Name: bufferCh, CollectionID: collectionID})
+		err = chManager.Watch(context.TODO(), &channelMeta{Name: bufferCh, CollectionID: collectionID})
 		assert.NoError(t, err)
 
 		waitAndCheckState(t, watchkv, datapb.ChannelWatchState_ToWatch, bufferID, bufferCh, collectionID)
 
 		chManager.store.Add(nodeID)
-		err = chManager.Watch(context.TODO(), &channel{Name: chanToAdd, CollectionID: collectionID})
+		err = chManager.Watch(context.TODO(), &channelMeta{Name: chanToAdd, CollectionID: collectionID})
 		assert.NoError(t, err)
 		waitAndCheckState(t, watchkv, datapb.ChannelWatchState_ToWatch, nodeID, chanToAdd, collectionID)
 
@@ -505,7 +502,7 @@ func TestChannelManager(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{{Name: channelName, CollectionID: collectionID}}},
+				nodeID: {nodeID, []RWChannel{&channelMeta{Name: channelName, CollectionID: collectionID}}},
 			},
 		}
 
@@ -537,7 +534,7 @@ func TestChannelManager(t *testing.T) {
 		// prepare tests
 		for _, test := range tests {
 			chManager.store.Add(test.nodeID)
-			ops := getOpsWithWatchInfo(test.nodeID, &channel{Name: test.chName, CollectionID: collectionID})
+			ops := getTestOps(test.nodeID, &channelMeta{Name: test.chName, CollectionID: collectionID, WatchInfo: &datapb.ChannelWatchInfo{}})
 			err = chManager.store.Update(ops)
 			require.NoError(t, err)
 
@@ -588,7 +585,7 @@ func TestChannelManager(t *testing.T) {
 		require.NoError(t, err)
 
 		chManager.store.Add(1)
-		ops := getOpsWithWatchInfo(1, &channel{Name: "chan", CollectionID: collectionID})
+		ops := getTestOps(1, &channelMeta{Name: "chan", CollectionID: collectionID, WatchInfo: &datapb.ChannelWatchInfo{}})
 		err = chManager.store.Update(ops)
 		require.NoError(t, err)
 
@@ -614,7 +611,7 @@ func TestChannelManager(t *testing.T) {
 		require.NoError(t, err)
 
 		chManager.store.Add(1)
-		ops := getOpsWithWatchInfo(1, &channel{Name: "chan", CollectionID: 1})
+		ops := getTestOps(1, &channelMeta{Name: "chan", CollectionID: 1, WatchInfo: &datapb.ChannelWatchInfo{}})
 		err = chManager.store.Update(ops)
 		require.NoError(t, err)
 
@@ -639,7 +636,7 @@ func TestChannelManager(t *testing.T) {
 		require.NoError(t, err)
 
 		chManager.store.Add(1)
-		ops := getOpsWithWatchInfo(1, &channel{Name: "chan", CollectionID: 1})
+		ops := getTestOps(1, &channelMeta{Name: "chan", CollectionID: 1, WatchInfo: &datapb.ChannelWatchInfo{}})
 		err = chManager.store.Update(ops)
 		require.NoError(t, err)
 
@@ -666,7 +663,7 @@ func TestChannelManager(t *testing.T) {
 		require.NoError(t, err)
 
 		chManager.store.Add(1)
-		ops := getOpsWithWatchInfo(1, &channel{Name: "chan", CollectionID: 1})
+		ops := getTestOps(1, &channelMeta{Name: "chan", CollectionID: 1, WatchInfo: &datapb.ChannelWatchInfo{}})
 		err = chManager.store.Update(ops)
 		require.NoError(t, err)
 
@@ -685,11 +682,11 @@ func TestChannelManager(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				1: {1, []*channel{
-					{Name: "channel-1", CollectionID: collectionID},
-					{Name: "channel-2", CollectionID: collectionID},
+				1: {1, []RWChannel{
+					&channelMeta{Name: "channel-1", CollectionID: collectionID},
+					&channelMeta{Name: "channel-2", CollectionID: collectionID},
 				}},
-				bufferID: {bufferID, []*channel{}},
+				bufferID: {bufferID, []RWChannel{}},
 			},
 		}
 		chManager.stateTimer.startOne(datapb.ChannelWatchState_ToRelease, "channel-1", 1, Params.DataCoordCfg.WatchTimeoutInterval.GetAsDuration(time.Second))
@@ -723,7 +720,7 @@ func TestChannelManager(t *testing.T) {
 		// prepare tests
 		for _, test := range tests {
 			chManager.store.Add(test.nodeID)
-			ops := getOpsWithWatchInfo(test.nodeID, &channel{Name: test.chName, CollectionID: collectionID})
+			ops := getTestOps(test.nodeID, &channelMeta{Name: test.chName, CollectionID: collectionID, WatchInfo: &datapb.ChannelWatchInfo{}})
 			err = chManager.store.Update(ops)
 			require.NoError(t, err)
 
@@ -777,13 +774,13 @@ func TestChannelManager(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				nodeID: {nodeID, []*channel{{Name: channelName, CollectionID: collectionID}}},
+				nodeID: {nodeID, []RWChannel{&channelMeta{Name: channelName, CollectionID: collectionID}}},
 			},
 		}
 		ch = chManager.getChannelByNodeAndName(nodeID, channelName)
 		assert.NotNil(t, ch)
-		assert.Equal(t, collectionID, ch.CollectionID)
-		assert.Equal(t, channelName, ch.Name)
+		assert.Equal(t, collectionID, ch.GetCollectionID())
+		assert.Equal(t, channelName, ch.GetName())
 	})
 
 	t.Run("test fillChannelWatchInfoWithState", func(t *testing.T) {
@@ -808,13 +805,13 @@ func TestChannelManager(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.description, func(t *testing.T) {
-				ops := getReleaseOp(nodeID, &channel{Name: channelName, CollectionID: collectionID})
-				for _, op := range ops {
+				ops := NewChannelOpSet(NewAddOp(nodeID, &channelMeta{Name: channelName, CollectionID: collectionID}))
+				for _, op := range ops.Collect() {
 					chs := chManager.fillChannelWatchInfoWithState(op, test.inState)
 					assert.Equal(t, 1, len(chs))
 					assert.Equal(t, channelName, chs[0])
-					assert.Equal(t, 1, len(op.ChannelWatchInfos))
-					assert.Equal(t, test.inState, op.ChannelWatchInfos[0].GetState())
+					assert.NotNil(t, op.Channels[0].GetWatchInfo())
+					assert.Equal(t, test.inState, op.Channels[0].GetWatchInfo().GetState())
 
 					chManager.stateTimer.removeTimers(chs)
 				}
@@ -833,7 +830,7 @@ func TestChannelManager(t *testing.T) {
 		require.NoError(t, err)
 		chManager.store.Add(nodeID)
 
-		opSet := getReleaseOp(nodeID, &channel{Name: channelName, CollectionID: collectionID})
+		opSet := NewChannelOpSet(NewAddOp(nodeID, &channelMeta{Name: channelName, CollectionID: collectionID}))
 
 		chManager.updateWithTimer(opSet, datapb.ChannelWatchState_ToWatch)
 		chManager.stateTimer.removeTimers([]string{channelName})
@@ -866,7 +863,7 @@ func TestChannelManager(t *testing.T) {
 		assert.False(t, chManager.stateTimer.hasRunningTimers())
 
 		// 3. watch one channel
-		chManager.Watch(ctx, &channel{Name: cName, CollectionID: collectionID})
+		chManager.Watch(ctx, &channelMeta{Name: cName, CollectionID: collectionID})
 		assert.False(t, chManager.isSilent())
 		assert.True(t, chManager.stateTimer.hasRunningTimers())
 		key := path.Join(prefix, strconv.FormatInt(nodeID, 10), cName)
@@ -946,7 +943,7 @@ func TestChannelManager_Reload(t *testing.T) {
 			chManager.store = &ChannelStore{
 				store: watchkv,
 				channelsInfo: map[int64]*NodeChannelInfo{
-					nodeID: {nodeID, []*channel{{Name: channelName, CollectionID: collectionID}}},
+					nodeID: {nodeID, []RWChannel{&channelMeta{Name: channelName, CollectionID: collectionID}}},
 				},
 			}
 
@@ -969,7 +966,7 @@ func TestChannelManager_Reload(t *testing.T) {
 			chManager.store = &ChannelStore{
 				store: watchkv,
 				channelsInfo: map[int64]*NodeChannelInfo{
-					nodeID: {nodeID, []*channel{{Name: channelName, CollectionID: collectionID}}},
+					nodeID: {nodeID, []RWChannel{&channelMeta{Name: channelName, CollectionID: collectionID}}},
 				},
 			}
 
@@ -996,8 +993,8 @@ func TestChannelManager_Reload(t *testing.T) {
 			chManager.store = &ChannelStore{
 				store: watchkv,
 				channelsInfo: map[int64]*NodeChannelInfo{
-					nodeID: {nodeID, []*channel{{Name: channelName, CollectionID: collectionID}}},
-					999:    {999, []*channel{}},
+					nodeID: {nodeID, []RWChannel{&channelMeta{Name: channelName, CollectionID: collectionID}}},
+					999:    {999, []RWChannel{}},
 				},
 			}
 			require.NoError(t, err)
@@ -1027,8 +1024,8 @@ func TestChannelManager_Reload(t *testing.T) {
 		cm.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				1: {1, []*channel{{Name: "channel1", CollectionID: 1}}},
-				2: {2, []*channel{{Name: "channel2", CollectionID: 1}}},
+				1: {1, []RWChannel{&channelMeta{Name: "channel1", CollectionID: 1}}},
+				2: {2, []RWChannel{&channelMeta{Name: "channel2", CollectionID: 1}}},
 			},
 		}
 
@@ -1063,6 +1060,7 @@ func TestChannelManager_BalanceBehaviour(t *testing.T) {
 
 	prefix := Params.CommonCfg.DataCoordWatchSubPath.GetValue()
 
+	Params.Save(Params.DataCoordCfg.AutoBalance.Key, "true")
 	t.Run("one node with three channels add a new node", func(t *testing.T) {
 		defer watchkv.RemoveWithPrefix("")
 
@@ -1079,10 +1077,10 @@ func TestChannelManager_BalanceBehaviour(t *testing.T) {
 		chManager.store = &ChannelStore{
 			store: watchkv,
 			channelsInfo: map[int64]*NodeChannelInfo{
-				1: {1, []*channel{
-					{Name: "channel-1", CollectionID: collectionID},
-					{Name: "channel-2", CollectionID: collectionID},
-					{Name: "channel-3", CollectionID: collectionID},
+				1: {1, []RWChannel{
+					&channelMeta{Name: "channel-1", CollectionID: collectionID},
+					&channelMeta{Name: "channel-2", CollectionID: collectionID},
+					&channelMeta{Name: "channel-3", CollectionID: collectionID},
 				}},
 			},
 		}
@@ -1092,26 +1090,6 @@ func TestChannelManager_BalanceBehaviour(t *testing.T) {
 		chManager.AddNode(2)
 		channelBalanced = "channel-1"
 
-		// waitAndStore := func(waitState, storeState datapb.ChannelWatchState, nodeID UniqueID, channelName string) {
-		//     for {
-		//         key := path.Join(prefix, strconv.FormatInt(nodeID, 10), channelName)
-		//         v, err := watchkv.Load(key)
-		//         if err == nil && len(v) > 0 {
-		//             watchInfo, err := parseWatchInfo(key, []byte(v))
-		//             require.NoError(t, err)
-		//             require.Equal(t, waitState, watchInfo.GetState())
-		//
-		//             watchInfo.State = storeState
-		//             data, err := proto.Marshal(watchInfo)
-		//             require.NoError(t, err)
-		//
-		//             watchkv.Save(key, string(data))
-		//             break
-		//         }
-		//         time.Sleep(100 * time.Millisecond)
-		//     }
-		// }
-
 		key := path.Join(prefix, "1", channelBalanced)
 		waitAndStore(t, watchkv, key, datapb.ChannelWatchState_ToRelease, datapb.ChannelWatchState_ReleaseSuccess)
 
@@ -1120,11 +1098,10 @@ func TestChannelManager_BalanceBehaviour(t *testing.T) {
 
 		assert.True(t, chManager.Match(1, "channel-2"))
 		assert.True(t, chManager.Match(1, "channel-3"))
-
 		assert.True(t, chManager.Match(2, "channel-1"))
 
 		chManager.AddNode(3)
-		chManager.Watch(ctx, &channel{Name: "channel-4", CollectionID: collectionID})
+		chManager.Watch(ctx, &channelMeta{Name: "channel-4", CollectionID: collectionID})
 		key = path.Join(prefix, "3", "channel-4")
 		waitAndStore(t, watchkv, key, datapb.ChannelWatchState_ToWatch, datapb.ChannelWatchState_WatchSuccess)
 
@@ -1182,8 +1159,8 @@ func TestChannelManager_RemoveChannel(t *testing.T) {
 					channelsInfo: map[int64]*NodeChannelInfo{
 						1: {
 							NodeID: 1,
-							Channels: []*channel{
-								{Name: "ch1", CollectionID: 1},
+							Channels: []RWChannel{
+								&channelMeta{Name: "ch1", CollectionID: 1},
 							},
 						},
 					},
@@ -1258,5 +1235,65 @@ func TestChannelManager_HelperFunc(t *testing.T) {
 				assert.ElementsMatch(t, test.expectedOut, nodes)
 			})
 		}
+	})
+}
+
+func TestChannelManager_BackgroundChannelChecker(t *testing.T) {
+	Params.Save(Params.DataCoordCfg.AutoBalance.Key, "false")
+	Params.Save(Params.DataCoordCfg.ChannelBalanceInterval.Key, "1")
+	Params.Save(Params.DataCoordCfg.ChannelBalanceSilentDuration.Key, "1")
+
+	watchkv := getWatchKV(t)
+	defer func() {
+		watchkv.RemoveWithPrefix("")
+		watchkv.Close()
+	}()
+
+	defer watchkv.RemoveWithPrefix("")
+
+	c, err := NewChannelManager(watchkv, newMockHandler(), withStateChecker())
+	require.NoError(t, err)
+	mockStore := NewMockRWChannelStore(t)
+	mockStore.EXPECT().GetNodesChannels().Return([]*NodeChannelInfo{
+		{
+			NodeID: 1,
+			Channels: []RWChannel{
+				&channelMeta{
+					Name: "channel-1",
+				},
+				&channelMeta{
+					Name: "channel-2",
+				},
+				&channelMeta{
+					Name: "channel-3",
+				},
+			},
+		},
+		{
+			NodeID: 2,
+		},
+	}).Maybe()
+	c.store = mockStore
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go c.bgCheckChannelsWork(ctx)
+
+	updateCounter := atomic.NewInt64(0)
+	mockStore.EXPECT().Update(mock.Anything).Run(func(op *ChannelOpSet) {
+		updateCounter.Inc()
+	}).Return(nil).Maybe()
+
+	t.Run("test disable auto balance", func(t *testing.T) {
+		assert.Eventually(t, func() bool {
+			return updateCounter.Load() == 0
+		}, 5*time.Second, 1*time.Second)
+	})
+
+	t.Run("test enable auto balance", func(t *testing.T) {
+		Params.Save(Params.DataCoordCfg.AutoBalance.Key, "true")
+		assert.Eventually(t, func() bool {
+			return updateCounter.Load() > 0
+		}, 5*time.Second, 1*time.Second)
 	})
 }

@@ -26,6 +26,7 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/internal/querycoordv2/meta"
 	"github.com/milvus-io/milvus/internal/querycoordv2/params"
+	"github.com/milvus-io/milvus/internal/querycoordv2/session"
 	"github.com/milvus-io/milvus/internal/querycoordv2/task"
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/util/typeutil"
@@ -35,20 +36,23 @@ var _ Checker = (*IndexChecker)(nil)
 
 // IndexChecker perform segment index check.
 type IndexChecker struct {
-	meta   *meta.Meta
-	dist   *meta.DistributionManager
-	broker meta.Broker
+	meta    *meta.Meta
+	dist    *meta.DistributionManager
+	broker  meta.Broker
+	nodeMgr *session.NodeManager
 }
 
 func NewIndexChecker(
 	meta *meta.Meta,
 	dist *meta.DistributionManager,
 	broker meta.Broker,
+	nodeMgr *session.NodeManager,
 ) *IndexChecker {
 	return &IndexChecker{
-		meta:   meta,
-		dist:   dist,
-		broker: broker,
+		meta:    meta,
+		dist:    dist,
+		broker:  broker,
+		nodeMgr: nodeMgr,
 	}
 }
 
@@ -90,6 +94,10 @@ func (c *IndexChecker) checkReplica(ctx context.Context, collection *meta.Collec
 
 	targets := make(map[int64][]int64) // segmentID => FieldID
 	for _, segment := range segments {
+		// skip update index in stopping node
+		if ok, _ := c.nodeMgr.IsStoppingNode(segment.Node); ok {
+			continue
+		}
 		missing := c.checkSegment(ctx, segment, collection)
 		if len(missing) > 0 {
 			targets[segment.GetID()] = missing
@@ -146,7 +154,7 @@ func (c *IndexChecker) getSealedSegmentsDist(replica *meta.Replica) []*meta.Segm
 
 func (c *IndexChecker) createSegmentUpdateTask(ctx context.Context, segment *meta.Segment, replica *meta.Replica) (task.Task, bool) {
 	action := task.NewSegmentActionWithScope(segment.Node, task.ActionTypeUpdate, segment.GetInsertChannel(), segment.GetID(), querypb.DataScope_Historical)
-	task, err := task.NewSegmentTask(
+	t, err := task.NewSegmentTask(
 		ctx,
 		params.Params.QueryCoordCfg.SegmentTaskTimeout.GetAsDuration(time.Millisecond),
 		c.ID(),
@@ -163,6 +171,8 @@ func (c *IndexChecker) createSegmentUpdateTask(ctx context.Context, segment *met
 		)
 		return nil, false
 	}
-	task.SetReason("missing index")
-	return task, true
+	// index task shall have lower or equal priority than balance task
+	t.SetPriority(task.TaskPriorityLow)
+	t.SetReason("missing index")
+	return t, true
 }

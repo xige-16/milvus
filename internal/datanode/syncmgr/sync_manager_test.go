@@ -9,6 +9,7 @@ import (
 	"github.com/samber/lo"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/suite"
+	"go.uber.org/atomic"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
@@ -146,14 +147,12 @@ func (s *SyncManagerSuite) getSuiteSyncTask() *SyncTask {
 }
 
 func (s *SyncManagerSuite) TestSubmit() {
-	sig := make(chan struct{})
-	s.broker.EXPECT().SaveBinlogPaths(mock.Anything, mock.Anything).Run(func(_ context.Context, _ *datapb.SaveBinlogPathsRequest) {
-		close(sig)
-	}).Return(nil)
+	s.broker.EXPECT().SaveBinlogPaths(mock.Anything, mock.Anything).Return(nil)
 	bfs := metacache.NewBloomFilterSet()
 	seg := metacache.NewSegmentInfo(&datapb.SegmentInfo{}, bfs)
 	metacache.UpdateNumOfRows(1000)(seg)
 	s.metacache.EXPECT().GetSegmentsBy(mock.Anything).Return([]*metacache.SegmentInfo{seg})
+	s.metacache.EXPECT().UpdateSegments(mock.Anything, mock.Anything).Return()
 
 	manager, err := NewSyncManager(10, s.chunkManager, s.allocator)
 	s.NoError(err)
@@ -166,9 +165,88 @@ func (s *SyncManagerSuite) TestSubmit() {
 		Timestamp:   100,
 	})
 
-	err = manager.SyncData(context.Background(), task)
+	f := manager.SyncData(context.Background(), task)
+	s.NotNil(f)
+
+	r, err := f.Await()
+	s.NoError(err)
+	s.NoError(r)
+}
+
+func (s *SyncManagerSuite) TestCompacted() {
+	var segmentID atomic.Int64
+	s.broker.EXPECT().SaveBinlogPaths(mock.Anything, mock.Anything).Run(func(_ context.Context, req *datapb.SaveBinlogPathsRequest) {
+		segmentID.Store(req.GetSegmentID())
+	}).Return(nil)
+	bfs := metacache.NewBloomFilterSet()
+	seg := metacache.NewSegmentInfo(&datapb.SegmentInfo{}, bfs)
+	metacache.UpdateNumOfRows(1000)(seg)
+	metacache.CompactTo(1001)(seg)
+	s.metacache.EXPECT().GetSegmentsBy(mock.Anything).Return([]*metacache.SegmentInfo{seg})
+	s.metacache.EXPECT().UpdateSegments(mock.Anything, mock.Anything).Return()
+
+	manager, err := NewSyncManager(10, s.chunkManager, s.allocator)
+	s.NoError(err)
+	task := s.getSuiteSyncTask()
+	task.WithMetaWriter(BrokerMetaWriter(s.broker))
+	task.WithTimeRange(50, 100)
+	task.WithCheckpoint(&msgpb.MsgPosition{
+		ChannelName: s.channelName,
+		MsgID:       []byte{1, 2, 3, 4},
+		Timestamp:   100,
+	})
+
+	f := manager.SyncData(context.Background(), task)
+	s.NotNil(f)
+
+	r, err := f.Await()
+	s.NoError(err)
+	s.NoError(r)
+	s.EqualValues(1001, segmentID.Load())
+}
+
+func (s *SyncManagerSuite) TestBlock() {
+	sig := make(chan struct{})
+	counter := atomic.NewInt32(0)
+	s.broker.EXPECT().SaveBinlogPaths(mock.Anything, mock.Anything).Return(nil)
+	bfs := metacache.NewBloomFilterSet()
+	seg := metacache.NewSegmentInfo(&datapb.SegmentInfo{}, bfs)
+	metacache.UpdateNumOfRows(1000)(seg)
+	s.metacache.EXPECT().GetSegmentsBy(mock.Anything).
+		RunAndReturn(func(...metacache.SegmentFilter) []*metacache.SegmentInfo {
+			return []*metacache.SegmentInfo{seg}
+		})
+	s.metacache.EXPECT().UpdateSegments(mock.Anything, mock.Anything).Run(func(_ metacache.SegmentAction, filters ...metacache.SegmentFilter) {
+		if counter.Inc() == 2 {
+			close(sig)
+		}
+	})
+
+	manager, err := NewSyncManager(10, s.chunkManager, s.allocator)
 	s.NoError(err)
 
+	// block
+	manager.Block(s.segmentID)
+
+	go func() {
+		task := s.getSuiteSyncTask()
+		task.WithMetaWriter(BrokerMetaWriter(s.broker))
+		task.WithTimeRange(50, 100)
+		task.WithCheckpoint(&msgpb.MsgPosition{
+			ChannelName: s.channelName,
+			MsgID:       []byte{1, 2, 3, 4},
+			Timestamp:   100,
+		})
+		manager.SyncData(context.Background(), task)
+	}()
+
+	select {
+	case <-sig:
+		s.FailNow("sync task done during block")
+	default:
+	}
+
+	manager.Unblock(s.segmentID)
 	<-sig
 }
 

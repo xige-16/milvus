@@ -31,6 +31,7 @@ import (
 
 	"go.uber.org/zap"
 
+	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/pkg/eventlog"
 	"github.com/milvus-io/milvus/pkg/log"
@@ -69,6 +70,12 @@ func WithType(typ SegmentType) SegmentFilter {
 func WithID(id int64) SegmentFilter {
 	return func(segment Segment) bool {
 		return segment.ID() == id
+	}
+}
+
+func WithLevel(level datapb.SegmentLevel) SegmentFilter {
+	return func(segment Segment) bool {
+		return segment.Level() == level
 	}
 }
 
@@ -116,6 +123,7 @@ type SegmentManager interface {
 	// and increases the ref count of the corresponding collection,
 	// dup segments will not increase the ref count
 	Put(segmentType SegmentType, segments ...Segment)
+	UpdateBy(action SegmentAction, filters ...SegmentFilter) int
 	Get(segmentID UniqueID) Segment
 	GetWithType(segmentID UniqueID, typ SegmentType) Segment
 	GetBy(filters ...SegmentFilter) []Segment
@@ -123,8 +131,6 @@ type SegmentManager interface {
 	GetAndPinBy(filters ...SegmentFilter) ([]Segment, error)
 	GetAndPin(segments []int64, filters ...SegmentFilter) ([]Segment, error)
 	Unpin(segments []Segment)
-
-	UpdateSegmentBy(action SegmentAction, filters ...SegmentFilter) int
 
 	GetSealed(segmentID UniqueID) Segment
 	GetGrowing(segmentID UniqueID) Segment
@@ -217,7 +223,7 @@ func (mgr *segmentManager) Put(segmentType SegmentType, segments ...Segment) {
 	}
 }
 
-func (mgr *segmentManager) UpdateSegmentBy(action SegmentAction, filters ...SegmentFilter) int {
+func (mgr *segmentManager) UpdateBy(action SegmentAction, filters ...SegmentFilter) int {
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
 
@@ -290,8 +296,6 @@ func (mgr *segmentManager) GetAndPinBy(filters ...SegmentFilter) ([]Segment, err
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
 
-	filters = append(filters, WithSkipEmpty())
-
 	ret := make([]Segment, 0)
 	var err error
 	defer func() {
@@ -313,7 +317,7 @@ func (mgr *segmentManager) GetAndPinBy(filters ...SegmentFilter) ([]Segment, err
 	}
 
 	for _, segment := range mgr.sealedSegments {
-		if filter(segment, filters...) {
+		if segment.Level() != datapb.SegmentLevel_L0 && filter(segment, filters...) {
 			err = segment.RLock()
 			if err != nil {
 				return nil, err
@@ -328,8 +332,6 @@ func (mgr *segmentManager) GetAndPin(segments []int64, filters ...SegmentFilter)
 	mgr.mu.RLock()
 	defer mgr.mu.RUnlock()
 
-	filters = append(filters, WithSkipEmpty())
-
 	lockedSegments := make([]Segment, 0, len(segments))
 	var err error
 	defer func() {
@@ -343,6 +345,11 @@ func (mgr *segmentManager) GetAndPin(segments []int64, filters ...SegmentFilter)
 	for _, id := range segments {
 		growing, growingExist := mgr.growingSegments[id]
 		sealed, sealedExist := mgr.sealedSegments[id]
+
+		// L0 Segment should not be queryable.
+		if sealedExist && sealed.Level() == datapb.SegmentLevel_L0 {
+			continue
+		}
 
 		growingExist = growingExist && filter(growing, filters...)
 		sealedExist = sealedExist && filter(sealed, filters...)

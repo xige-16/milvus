@@ -23,6 +23,7 @@
 #include "common/EasyAssert.h"
 #include "common/Types.h"
 #include "fmt/format.h"
+#include "log/Log.h"
 #include "nlohmann/json.hpp"
 #include "query/PlanNode.h"
 #include "query/SearchOnSealed.h"
@@ -102,7 +103,11 @@ SegmentGrowingImpl::Insert(int64_t reserved_offset,
         reserved_offset, timestamps_raw, num_rows);
     insert_record_.row_ids_.set_data_raw(reserved_offset, row_ids, num_rows);
     for (auto [field_id, field_meta] : schema_->get_fields()) {
-        AssertInfo(field_id_to_offset.count(field_id), "Cannot find field_id");
+        if (field_id.get() < START_USER_FIELDID) {
+            continue;
+        }
+        AssertInfo(field_id_to_offset.count(field_id),
+                   fmt::format("can't find field {}", field_id.get()));
         auto data_offset = field_id_to_offset[field_id];
         if (!indexing_record_.SyncDataWithIndex(field_id)) {
             insert_record_.get_field_data_base(field_id)->set_data_raw(
@@ -112,7 +117,7 @@ SegmentGrowingImpl::Insert(int64_t reserved_offset,
                 field_meta);
         }
         //insert vector data into index
-        if (segcore_config_.get_enable_growing_segment_index()) {
+        if (segcore_config_.get_enable_interim_segment_index()) {
             indexing_record_.AppendingIndex(
                 reserved_offset,
                 num_rows,
@@ -195,7 +200,7 @@ SegmentGrowingImpl::LoadFieldData(const LoadFieldDataInfo& infos) {
             insert_record_.get_field_data_base(field_id)->set_data_raw(
                 reserved_offset, field_data);
         }
-        if (segcore_config_.get_enable_growing_segment_index()) {
+        if (segcore_config_.get_enable_interim_segment_index()) {
             auto offset = reserved_offset;
             for (auto& data : field_data) {
                 auto row_count = data->get_num_rows();
@@ -347,102 +352,161 @@ SegmentGrowingImpl::bulk_subscript(FieldId field_id,
     auto vec_ptr = insert_record_.get_field_data_base(field_id);
     auto& field_meta = schema_->operator[](field_id);
     if (field_meta.is_vector()) {
-        aligned_vector<char> output(field_meta.get_sizeof() * count);
+        auto result = CreateVectorDataArray(count, field_meta);
         if (field_meta.get_data_type() == DataType::VECTOR_FLOAT) {
             bulk_subscript_impl<FloatVector>(field_id,
                                              field_meta.get_sizeof(),
                                              vec_ptr,
                                              seg_offsets,
                                              count,
-                                             output.data());
+                                             result->mutable_vectors()
+                                                 ->mutable_float_vector()
+                                                 ->mutable_data()
+                                                 ->mutable_data());
         } else if (field_meta.get_data_type() == DataType::VECTOR_BINARY) {
-            bulk_subscript_impl<BinaryVector>(field_id,
-                                              field_meta.get_sizeof(),
-                                              vec_ptr,
-                                              seg_offsets,
-                                              count,
-                                              output.data());
+            bulk_subscript_impl<BinaryVector>(
+                field_id,
+                field_meta.get_sizeof(),
+                vec_ptr,
+                seg_offsets,
+                count,
+                result->mutable_vectors()->mutable_binary_vector()->data());
         } else if (field_meta.get_data_type() == DataType::VECTOR_FLOAT16) {
-            bulk_subscript_impl<Float16Vector>(field_id,
-                                               field_meta.get_sizeof(),
-                                               vec_ptr,
-                                               seg_offsets,
-                                               count,
-                                               output.data());
+            bulk_subscript_impl<Float16Vector>(
+                field_id,
+                field_meta.get_sizeof(),
+                vec_ptr,
+                seg_offsets,
+                count,
+                result->mutable_vectors()->mutable_float16_vector()->data());
         } else {
             PanicInfo(DataTypeInvalid, "logical error");
         }
-        return CreateVectorDataArrayFrom(output.data(), count, field_meta);
+        return result;
     }
 
     AssertInfo(!field_meta.is_vector(),
                "Scalar field meta type is vector type");
+    auto result = CreateScalarDataArray(count, field_meta);
     switch (field_meta.get_data_type()) {
         case DataType::BOOL: {
-            FixedVector<bool> output(count);
-            bulk_subscript_impl<bool>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<bool>(vec_ptr,
+                                      seg_offsets,
+                                      count,
+                                      result->mutable_scalars()
+                                          ->mutable_bool_data()
+                                          ->mutable_data()
+                                          ->mutable_data());
+            break;
         }
         case DataType::INT8: {
-            FixedVector<int8_t> output(count);
-            bulk_subscript_impl<int8_t>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int8_t>(vec_ptr,
+                                        seg_offsets,
+                                        count,
+                                        result->mutable_scalars()
+                                            ->mutable_int_data()
+                                            ->mutable_data()
+                                            ->mutable_data());
+            break;
         }
         case DataType::INT16: {
-            FixedVector<int16_t> output(count);
-            bulk_subscript_impl<int16_t>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int16_t>(vec_ptr,
+                                         seg_offsets,
+                                         count,
+                                         result->mutable_scalars()
+                                             ->mutable_int_data()
+                                             ->mutable_data()
+                                             ->mutable_data());
+            break;
         }
         case DataType::INT32: {
-            FixedVector<int32_t> output(count);
-            bulk_subscript_impl<int32_t>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int32_t>(vec_ptr,
+                                         seg_offsets,
+                                         count,
+                                         result->mutable_scalars()
+                                             ->mutable_int_data()
+                                             ->mutable_data()
+                                             ->mutable_data());
+            break;
         }
         case DataType::INT64: {
-            FixedVector<int64_t> output(count);
-            bulk_subscript_impl<int64_t>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int64_t>(vec_ptr,
+                                         seg_offsets,
+                                         count,
+                                         result->mutable_scalars()
+                                             ->mutable_long_data()
+                                             ->mutable_data()
+                                             ->mutable_data());
+            break;
         }
         case DataType::FLOAT: {
-            FixedVector<float> output(count);
-            bulk_subscript_impl<float>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<float>(vec_ptr,
+                                       seg_offsets,
+                                       count,
+                                       result->mutable_scalars()
+                                           ->mutable_float_data()
+                                           ->mutable_data()
+                                           ->mutable_data());
+            break;
         }
         case DataType::DOUBLE: {
-            FixedVector<double> output(count);
-            bulk_subscript_impl<double>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<double>(vec_ptr,
+                                        seg_offsets,
+                                        count,
+                                        result->mutable_scalars()
+                                            ->mutable_double_data()
+                                            ->mutable_data()
+                                            ->mutable_data());
+            break;
         }
         case DataType::VARCHAR: {
-            FixedVector<std::string> output(count);
-            bulk_subscript_impl<std::string>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_ptr_impl<std::string>(vec_ptr,
+                                                 seg_offsets,
+                                                 count,
+                                                 result->mutable_scalars()
+                                                     ->mutable_string_data()
+                                                     ->mutable_data());
+            break;
         }
         case DataType::JSON: {
-            FixedVector<std::string> output(count);
-            bulk_subscript_impl<Json, std::string>(
-                vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_ptr_impl<Json, std::string>(
+                vec_ptr,
+                seg_offsets,
+                count,
+                result->mutable_scalars()->mutable_json_data()->mutable_data());
+            break;
         }
         case DataType::ARRAY: {
             // element
-            FixedVector<ScalarArray> output(count);
-            bulk_subscript_impl(*vec_ptr, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_array_impl(*vec_ptr,
+                                      seg_offsets,
+                                      count,
+                                      result->mutable_scalars()
+                                          ->mutable_array_data()
+                                          ->mutable_data());
+            break;
         }
         default: {
             PanicInfo(
                 DataTypeInvalid,
                 fmt::format("unsupported type {}", field_meta.get_data_type()));
         }
+    }
+    return result;
+}
+
+template <typename S, typename T>
+void
+SegmentGrowingImpl::bulk_subscript_ptr_impl(
+    const VectorBase* vec_raw,
+    const int64_t* seg_offsets,
+    int64_t count,
+    google::protobuf::RepeatedPtrField<T>* dst) const {
+    auto vec = dynamic_cast<const ConcurrentVector<S>*>(vec_raw);
+    auto& src = *vec;
+    for (int64_t i = 0; i < count; ++i) {
+        auto offset = seg_offsets[i];
+        dst->at(i) = std::move(T(src[offset]));
     }
 }
 
@@ -492,31 +556,31 @@ void
 SegmentGrowingImpl::bulk_subscript_impl(const VectorBase* vec_raw,
                                         const int64_t* seg_offsets,
                                         int64_t count,
-                                        void* output_raw) const {
+                                        T* output) const {
     static_assert(IsScalar<S>);
     auto vec_ptr = dynamic_cast<const ConcurrentVector<S>*>(vec_raw);
     AssertInfo(vec_ptr, "Pointer of vec_raw is nullptr");
     auto& vec = *vec_ptr;
-    auto output = reinterpret_cast<T*>(output_raw);
     for (int64_t i = 0; i < count; ++i) {
         auto offset = seg_offsets[i];
         output[i] = vec[offset];
     }
 }
 
+template <typename T>
 void
-SegmentGrowingImpl::bulk_subscript_impl(const VectorBase& vec_raw,
-                                        const int64_t* seg_offsets,
-                                        int64_t count,
-                                        void* output_raw) const {
+SegmentGrowingImpl::bulk_subscript_array_impl(
+    const VectorBase& vec_raw,
+    const int64_t* seg_offsets,
+    int64_t count,
+    google::protobuf::RepeatedPtrField<T>* dst) const {
     auto vec_ptr = dynamic_cast<const ConcurrentVector<Array>*>(&vec_raw);
     AssertInfo(vec_ptr, "Pointer of vec_raw is nullptr");
     auto& vec = *vec_ptr;
-    auto output = reinterpret_cast<ScalarArray*>(output_raw);
     for (int64_t i = 0; i < count; ++i) {
         auto offset = seg_offsets[i];
         if (offset != INVALID_SEG_OFFSET) {
-            output[i] = vec[offset].output_data();
+            dst->at(i) = vec[offset].output_data();
         }
     }
 }
@@ -528,12 +592,16 @@ SegmentGrowingImpl::bulk_subscript(SystemFieldType system_type,
                                    void* output) const {
     switch (system_type) {
         case SystemFieldType::Timestamp:
-            bulk_subscript_impl<Timestamp>(
-                &this->insert_record_.timestamps_, seg_offsets, count, output);
+            bulk_subscript_impl<Timestamp>(&this->insert_record_.timestamps_,
+                                           seg_offsets,
+                                           count,
+                                           static_cast<Timestamp*>(output));
             break;
         case SystemFieldType::RowId:
-            bulk_subscript_impl<int64_t>(
-                &this->insert_record_.row_ids_, seg_offsets, count, output);
+            bulk_subscript_impl<int64_t>(&this->insert_record_.row_ids_,
+                                         seg_offsets,
+                                         count,
+                                         static_cast<int64_t*>(output));
             break;
         default:
             PanicInfo(DataTypeInvalid, "unknown subscript fields");

@@ -24,7 +24,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/blang/semver/v4"
 	"github.com/cockroachdb/errors"
+	"github.com/samber/lo"
 	"github.com/tikv/client-go/v2/txnkv"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/atomic"
@@ -74,7 +76,7 @@ type Server struct {
 	etcdCli             *clientv3.Client
 	tikvCli             *txnkv.Client
 	address             string
-	session             *sessionutil.Session
+	session             sessionutil.SessionInterface
 	kv                  kv.MetaKv
 	idAllocator         func() (int64, error)
 	metricsCacheManager *metricsinfo.MetricsCacheManager
@@ -146,13 +148,13 @@ func (s *Server) Register() error {
 	}
 	metrics.NumNodes.WithLabelValues(fmt.Sprint(paramtable.GetNodeID()), typeutil.QueryCoordRole).Inc()
 	s.session.LivenessCheck(s.ctx, func() {
-		log.Error("QueryCoord disconnected from etcd, process will exit", zap.Int64("serverID", s.session.ServerID))
+		log.Error("QueryCoord disconnected from etcd, process will exit", zap.Int64("serverID", s.session.GetServerID()))
 		if err := s.Stop(); err != nil {
 			log.Fatal("failed to stop server", zap.Error(err))
 		}
 		metrics.NumNodes.WithLabelValues(fmt.Sprint(paramtable.GetNodeID()), typeutil.QueryCoordRole).Dec()
 		// manually send signal to starter goroutine
-		if s.session.TriggerKill {
+		if s.session.IsTriggerKill() {
 			if p, err := os.FindProcess(os.Getpid()); err == nil {
 				p.Signal(syscall.SIGINT)
 			}
@@ -362,12 +364,14 @@ func (s *Server) initObserver() {
 		s.targetMgr,
 		s.broker,
 		s.cluster,
+		s.nodeMgr,
 	)
 	s.targetObserver = observers.NewTargetObserver(
 		s.meta,
 		s.targetMgr,
 		s.dist,
 		s.broker,
+		s.cluster,
 	)
 	s.collectionObserver = observers.NewCollectionObserver(
 		s.dist,
@@ -387,6 +391,7 @@ func (s *Server) initObserver() {
 }
 
 func (s *Server) afterStart() {
+	s.updateBalanceConfigLoop(s.ctx)
 }
 
 func (s *Server) Start() error {
@@ -428,7 +433,7 @@ func (s *Server) startQueryCoord() error {
 	s.startServerLoop()
 	s.afterStart()
 	s.UpdateStateCode(commonpb.StateCode_Healthy)
-	sessionutil.SaveServerInfo(typeutil.QueryCoordRole, s.session.ServerID)
+	sessionutil.SaveServerInfo(typeutil.QueryCoordRole, s.session.GetServerID())
 	return nil
 }
 
@@ -526,9 +531,10 @@ func (s *Server) State() commonpb.StateCode {
 }
 
 func (s *Server) GetComponentStates(ctx context.Context, req *milvuspb.GetComponentStatesRequest) (*milvuspb.ComponentStates, error) {
+	log.Debug("QueryCoord current state", zap.String("StateCode", s.State().String()))
 	nodeID := common.NotRegisteredID
 	if s.session != nil && s.session.Registered() {
-		nodeID = s.session.ServerID
+		nodeID = s.session.GetServerID()
 	}
 	serviceComponentInfo := &milvuspb.ComponentInfo{
 		// NodeID:    Params.QueryCoordID, // will race with QueryCoord.Register()
@@ -608,7 +614,7 @@ func (s *Server) watchNodes(revision int64) {
 				// ErrCompacted is handled inside SessionWatcher
 				log.Warn("Session Watcher channel closed", zap.Int64("serverID", paramtable.GetNodeID()))
 				go s.Stop()
-				if s.session.TriggerKill {
+				if s.session.IsTriggerKill() {
 					if p, err := os.FindProcess(os.Getpid()); err == nil {
 						p.Signal(syscall.SIGINT)
 					}
@@ -789,4 +795,51 @@ func (s *Server) checkReplicas() {
 			}
 		}
 	}
+}
+
+func (s *Server) updateBalanceConfigLoop(ctx context.Context) {
+	success := s.updateBalanceConfig()
+	if success {
+		return
+	}
+
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		ticker := time.NewTicker(Params.QueryCoordCfg.CheckAutoBalanceConfigInterval.GetAsDuration(time.Second))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info("update balance config loop exit!")
+				return
+
+			case <-ticker.C:
+				success := s.updateBalanceConfig()
+				if success {
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (s *Server) updateBalanceConfig() bool {
+	log := log.Ctx(s.ctx).WithRateGroup("qcv2.updateBalanceConfigLoop", 1, 60)
+	r := semver.MustParseRange("<2.3.0")
+	sessions, _, err := s.session.GetSessionsWithVersionRange(typeutil.QueryNodeRole, r)
+	if err != nil {
+		log.Warn("check query node version occur error on etcd", zap.Error(err))
+		return false
+	}
+
+	if len(sessions) == 0 {
+		// only balance channel when all query node's version >= 2.3.0
+		Params.Save(Params.QueryCoordCfg.AutoBalance.Key, "true")
+		log.Info("all old query node down, enable auto balance!")
+		return true
+	}
+
+	log.RatedDebug(10, "old query node exist", zap.Strings("sessions", lo.Keys(sessions)))
+	return false
 }

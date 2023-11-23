@@ -30,8 +30,13 @@ type SegmentInfo struct {
 	startPosition    *msgpb.MsgPosition
 	checkpoint       *msgpb.MsgPosition
 	startPosRecorded bool
-	numOfRows        int64
+	flushedRows      int64
+	bufferRows       int64
+	syncingRows      int64
 	bfs              *BloomFilterSet
+	compactTo        int64
+	importing        bool
+	level            datapb.SegmentLevel
 }
 
 func (s *SegmentInfo) SegmentID() int64 {
@@ -46,8 +51,15 @@ func (s *SegmentInfo) State() commonpb.SegmentState {
 	return s.state
 }
 
+// NumOfRows returns sum of number of rows,
+// including flushed, syncing and buffered
 func (s *SegmentInfo) NumOfRows() int64 {
-	return s.numOfRows
+	return s.flushedRows + s.syncingRows + s.bufferRows
+}
+
+// FlushedRows return flushed rows number.
+func (s *SegmentInfo) FlushedRows() int64 {
+	return s.flushedRows
 }
 
 func (s *SegmentInfo) StartPosition() *msgpb.MsgPosition {
@@ -62,6 +74,18 @@ func (s *SegmentInfo) GetHistory() []*storage.PkStatistics {
 	return s.bfs.GetHistory()
 }
 
+func (s *SegmentInfo) CompactTo() int64 {
+	return s.compactTo
+}
+
+func (s *SegmentInfo) GetBloomFilterSet() *BloomFilterSet {
+	return s.bfs
+}
+
+func (s *SegmentInfo) Level() datapb.SegmentLevel {
+	return s.level
+}
+
 func (s *SegmentInfo) Clone() *SegmentInfo {
 	return &SegmentInfo{
 		segmentID:        s.segmentID,
@@ -70,20 +94,30 @@ func (s *SegmentInfo) Clone() *SegmentInfo {
 		startPosition:    s.startPosition,
 		checkpoint:       s.checkpoint,
 		startPosRecorded: s.startPosRecorded,
-		numOfRows:        s.numOfRows,
+		flushedRows:      s.flushedRows,
+		bufferRows:       s.bufferRows,
+		syncingRows:      s.syncingRows,
 		bfs:              s.bfs,
+		compactTo:        s.compactTo,
+		level:            s.level,
+		importing:        s.importing,
 	}
 }
 
 func NewSegmentInfo(info *datapb.SegmentInfo, bfs *BloomFilterSet) *SegmentInfo {
+	level := info.GetLevel()
+	if level == datapb.SegmentLevel_Legacy {
+		level = datapb.SegmentLevel_L1
+	}
 	return &SegmentInfo{
 		segmentID:        info.GetID(),
 		partitionID:      info.GetPartitionID(),
 		state:            info.GetState(),
-		numOfRows:        info.GetNumOfRows(),
+		flushedRows:      info.GetNumOfRows(),
 		startPosition:    info.GetStartPosition(),
 		checkpoint:       info.GetDmlPosition(),
 		startPosRecorded: true,
+		level:            level,
 		bfs:              bfs,
 	}
 }

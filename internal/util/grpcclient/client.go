@@ -48,6 +48,7 @@ import (
 	"github.com/milvus-io/milvus/pkg/util/merr"
 	"github.com/milvus-io/milvus/pkg/util/paramtable"
 	"github.com/milvus-io/milvus/pkg/util/retry"
+	"github.com/milvus-io/milvus/pkg/util/typeutil"
 )
 
 // GrpcClient abstracts client of grpc
@@ -105,7 +106,7 @@ type ClientBase[T interface {
 	maxCancelError int32
 
 	NodeID atomic.Int64
-	sess   *sessionutil.Session
+	sess   sessionutil.SessionInterface
 }
 
 func NewClientBase[T interface {
@@ -321,9 +322,10 @@ func (c *ClientBase[T]) connect(ctx context.Context) error {
 }
 
 func (c *ClientBase[T]) verifySession(ctx context.Context) error {
-	if funcutil.CheckCtxValid(ctx) {
+	if !funcutil.CheckCtxValid(ctx) {
 		return nil
 	}
+
 	log := log.Ctx(ctx).With(zap.String("clientRole", c.GetRole()))
 	if time.Since(c.lastSessionCheck.Load()) < c.minSessionCheckInterval {
 		log.Debug("skip session check, verify too frequent")
@@ -359,30 +361,46 @@ func (c *ClientBase[T]) needResetCancel() (needReset bool) {
 	return false
 }
 
-func (c *ClientBase[T]) checkErr(ctx context.Context, err error) (needRetry, needReset bool, retErr error) {
+func (c *ClientBase[T]) checkGrpcErr(ctx context.Context, err error) (needRetry, needReset bool, retErr error) {
 	log := log.Ctx(ctx).With(zap.String("clientRole", c.GetRole()))
-	switch {
-	case funcutil.IsGrpcErr(err):
-		// grpc err
-		log.Warn("call received grpc error", zap.Error(err))
-		if funcutil.IsGrpcErr(err, codes.Canceled, codes.DeadlineExceeded) {
-			// canceled or deadline exceeded
-			return true, c.needResetCancel(), err
-		}
+	// Unknown err
+	if !funcutil.IsGrpcErr(err) {
+		log.Warn("fail to grpc call because of unknown error", zap.Error(err))
+		return false, false, err
+	}
 
-		if funcutil.IsGrpcErr(err, codes.Unimplemented) {
-			return false, false, merr.WrapErrServiceUnimplemented(err)
+	// grpc err
+	log.Warn("call received grpc error", zap.Error(err))
+	switch {
+	case funcutil.IsGrpcErr(err, codes.Canceled, codes.DeadlineExceeded):
+		// canceled or deadline exceeded
+		return true, c.needResetCancel(), err
+	case funcutil.IsGrpcErr(err, codes.Unimplemented):
+		return false, false, merr.WrapErrServiceUnimplemented(err)
+	case IsServerIDMismatchErr(err):
+		if ok, err := c.checkNodeSessionExist(ctx); !ok {
+			// if session doesn't exist, no need to retry for datanode/indexnode/querynode
+			return false, false, err
 		}
 		return true, true, err
-	case IsServerIDMismatchErr(err):
-		fallthrough
 	case IsCrossClusterRoutingErr(err):
 		return true, true, err
 	default:
-		log.Warn("fail to grpc call because of unknown error", zap.Error(err))
-		// Unknown err
-		return false, false, err
+		return true, true, err
 	}
+}
+
+func (c *ClientBase[T]) checkNodeSessionExist(ctx context.Context) (bool, error) {
+	switch c.GetRole() {
+	case typeutil.DataNodeRole, typeutil.IndexNodeRole, typeutil.QueryNodeRole, typeutil.ProxyRole:
+		err := c.verifySession(ctx)
+		if errors.Is(err, merr.ErrNodeNotFound) {
+			log.Warn("failed to verify node session", zap.Error(err))
+			// stop retry
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (c *ClientBase[T]) call(ctx context.Context, caller func(client T) (any, error)) (any, error) {
@@ -410,6 +428,11 @@ func (c *ClientBase[T]) call(ctx context.Context, caller func(client T) (any, er
 	defer cancel()
 	err := retry.Do(ctx, func() error {
 		if generic.IsZero(client) {
+			if ok, err := c.checkNodeSessionExist(ctx); !ok {
+				// if session doesn't exist, no need to reset connection for datanode/indexnode/querynode
+				return retry.Unrecoverable(err)
+			}
+
 			err := errors.Wrap(clientErr, "empty grpc client")
 			log.Warn("grpc client is nil, maybe fail to get client in the retry state", zap.Error(err))
 			resetClientFunc()
@@ -419,7 +442,7 @@ func (c *ClientBase[T]) call(ctx context.Context, caller func(client T) (any, er
 		ret, err = caller(client)
 		if err != nil {
 			var needRetry, needReset bool
-			needRetry, needReset, err = c.checkErr(ctx, err)
+			needRetry, needReset, err = c.checkGrpcErr(ctx, err)
 			if !needRetry {
 				// stop retry
 				err = retry.Unrecoverable(err)
@@ -428,6 +451,7 @@ func (c *ClientBase[T]) call(ctx context.Context, caller func(client T) (any, er
 				log.Warn("start to reset connection because of specific reasons", zap.Error(err))
 				resetClientFunc()
 			} else {
+				// err occurs but no need to reset connection, try to verify session
 				err := c.verifySession(ctx)
 				if err != nil {
 					log.Warn("failed to verify session, reset connection", zap.Error(err))

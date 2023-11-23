@@ -43,6 +43,7 @@ import (
 	"github.com/milvus-io/milvus/internal/querycoordv2/params"
 	"github.com/milvus-io/milvus/internal/querycoordv2/session"
 	"github.com/milvus-io/milvus/internal/querycoordv2/task"
+	"github.com/milvus-io/milvus/internal/util/sessionutil"
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/util/commonpbutil"
 	"github.com/milvus-io/milvus/pkg/util/etcd"
@@ -356,6 +357,50 @@ func (suite *ServerSuite) TestStop() {
 	suite.server.Stop()
 }
 
+func (suite *ServerSuite) TestUpdateAutoBalanceConfigLoop() {
+	suite.server.Stop()
+
+	Params.Save(Params.QueryCoordCfg.CheckAutoBalanceConfigInterval.Key, "1")
+	defer Params.Reset(Params.QueryCoordCfg.CheckAutoBalanceConfigInterval.Key)
+
+	suite.Run("test old node exist", func() {
+		Params.Save(Params.QueryCoordCfg.AutoBalance.Key, "false")
+		defer Params.Reset(Params.QueryCoordCfg.AutoBalance.Key)
+		server := &Server{}
+		mockSession := sessionutil.NewMockSession(suite.T())
+		server.session = mockSession
+
+		oldSessions := make(map[string]*sessionutil.Session)
+		oldSessions["s1"] = sessionutil.NewSession(context.Background())
+		mockSession.EXPECT().GetSessionsWithVersionRange(mock.Anything, mock.Anything).Return(oldSessions, 0, nil).Maybe()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go server.updateBalanceConfigLoop(ctx)
+		// old query node exist, disable auto balance
+		suite.Eventually(func() bool {
+			return !Params.QueryCoordCfg.AutoBalance.GetAsBool()
+		}, 5*time.Second, 1*time.Second)
+	})
+
+	suite.Run("all old node down", func() {
+		Params.Save(Params.QueryCoordCfg.AutoBalance.Key, "false")
+		defer Params.Reset(Params.QueryCoordCfg.AutoBalance.Key)
+		server := &Server{}
+		mockSession := sessionutil.NewMockSession(suite.T())
+		server.session = mockSession
+		mockSession.EXPECT().GetSessionsWithVersionRange(mock.Anything, mock.Anything).Return(nil, 0, nil).Maybe()
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go server.updateBalanceConfigLoop(ctx)
+		// all old query node down, enable auto balance
+		suite.Eventually(func() bool {
+			return Params.QueryCoordCfg.AutoBalance.GetAsBool()
+		}, 5*time.Second, 1*time.Second)
+	})
+}
+
 func (suite *ServerSuite) waitNodeUp(node *mocks.MockQueryNode, timeout time.Duration) bool {
 	start := time.Now()
 	for time.Since(start) < timeout {
@@ -513,6 +558,7 @@ func (suite *ServerSuite) hackServer() {
 		suite.server.targetMgr,
 		suite.server.dist,
 		suite.broker,
+		suite.server.cluster,
 	)
 	suite.server.collectionObserver = observers.NewCollectionObserver(
 		suite.server.dist,
@@ -523,7 +569,7 @@ func (suite *ServerSuite) hackServer() {
 		suite.server.checkerController,
 	)
 
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, mock.Anything).Return(&schemapb.CollectionSchema{}, nil).Maybe()
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, mock.Anything).Return(&milvuspb.DescribeCollectionResponse{Schema: &schemapb.CollectionSchema{}}, nil).Maybe()
 	suite.broker.EXPECT().DescribeIndex(mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	for _, collection := range suite.collections {
 		suite.broker.EXPECT().GetPartitions(mock.Anything, collection).Return(suite.partitions[collection], nil).Maybe()

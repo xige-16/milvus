@@ -166,7 +166,9 @@ func (s *SyncTaskSuite) TestRunNormal() {
 	bfs.UpdatePKRange(fd)
 	seg := metacache.NewSegmentInfo(&datapb.SegmentInfo{}, bfs)
 	metacache.UpdateNumOfRows(1000)(seg)
+	seg.GetBloomFilterSet().Roll()
 	s.metacache.EXPECT().GetSegmentsBy(mock.Anything).Return([]*metacache.SegmentInfo{seg})
+	s.metacache.EXPECT().UpdateSegments(mock.Anything, mock.Anything).Return()
 
 	s.Run("without_insert_delete", func() {
 		task := s.getSuiteSyncTask()
@@ -201,6 +203,7 @@ func (s *SyncTaskSuite) TestRunNormal() {
 		task := s.getSuiteSyncTask()
 		task.WithInsertData(s.getInsertBuffer()).WithDeleteData(s.getDeleteBuffer())
 		task.WithFlush()
+		task.WithDrop()
 		task.WithMetaWriter(BrokerMetaWriter(s.broker))
 		task.WithCheckpoint(&msgpb.MsgPosition{
 			ChannelName: s.channelName,
@@ -211,9 +214,48 @@ func (s *SyncTaskSuite) TestRunNormal() {
 		err := task.Run()
 		s.NoError(err)
 	})
+
+	s.Run("with_zero_numrow_insertdata", func() {
+		task := s.getSuiteSyncTask()
+		task.WithInsertData(s.getEmptyInsertBuffer())
+		task.WithFlush()
+		task.WithDrop()
+		task.WithMetaWriter(BrokerMetaWriter(s.broker))
+		task.WithCheckpoint(&msgpb.MsgPosition{
+			ChannelName: s.channelName,
+			MsgID:       []byte{1, 2, 3, 4},
+			Timestamp:   100,
+		})
+
+		err := task.Run()
+		s.Error(err)
+
+		err = task.serializePkStatsLog()
+		s.NoError(err)
+		stats, rowNum := task.convertInsertData2PkStats(100, schemapb.DataType_Int64)
+		s.Nil(stats)
+		s.Zero(rowNum)
+	})
 }
 
 func (s *SyncTaskSuite) TestRunError() {
+	s.Run("segment_not_found", func() {
+		s.metacache.EXPECT().GetSegmentsBy(mock.Anything).Return([]*metacache.SegmentInfo{})
+		flag := false
+		handler := func(_ error) { flag = true }
+		task := s.getSuiteSyncTask().WithFailureCallback(handler)
+		task.WithInsertData(s.getEmptyInsertBuffer())
+
+		err := task.Run()
+
+		s.Error(err)
+		s.True(flag)
+	})
+
+	s.metacache.ExpectedCalls = nil
+	seg := metacache.NewSegmentInfo(&datapb.SegmentInfo{}, metacache.NewBloomFilterSet())
+	metacache.UpdateNumOfRows(1000)(seg)
+	s.metacache.EXPECT().GetSegmentsBy(mock.Anything).Return([]*metacache.SegmentInfo{seg})
 	s.Run("serialize_insert_fail", func() {
 		flag := false
 		handler := func(_ error) { flag = true }

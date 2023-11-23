@@ -21,16 +21,19 @@
 #include "Constants.h"
 #include "common/EasyAssert.h"
 #include "common/Schema.h"
+#include "common/Types.h"
 #include "index/ScalarIndexSort.h"
 #include "index/StringIndexSort.h"
 #include "index/VectorMemIndex.h"
 #include "query/SearchOnIndex.h"
+#include "segcore/Collection.h"
 #include "segcore/SegmentGrowingImpl.h"
 #include "segcore/SegmentSealedImpl.h"
 #include "segcore/Utils.h"
 #include "knowhere/comp/index_param.h"
 
 #include "PbHelper.h"
+#include "segcore/collection_c.h"
 
 using boost::algorithm::starts_with;
 
@@ -79,9 +82,9 @@ struct GeneratedData {
     }
 
     template <typename T>
-    std::vector<T>
+    FixedVector<T>
     get_col(FieldId field_id) const {
-        std::vector<T> ret(raw_->num_rows());
+        FixedVector<T> ret(raw_->num_rows());
         for (auto i = 0; i < raw_->fields_data_size(); i++) {
             auto target_field_data = raw_->fields_data(i);
             if (field_id.get() != target_field_data.field_id()) {
@@ -916,7 +919,7 @@ GenVecIndexing(int64_t N, int64_t dim, const float* vec) {
     auto chunk_manager = milvus::storage::CreateChunkManager(storage_config);
     milvus::storage::FileManagerContext file_manager_context(
         field_data_meta, index_meta, chunk_manager);
-    auto indexing = std::make_unique<index::VectorMemIndex>(
+    auto indexing = std::make_unique<index::VectorMemIndex<float>>(
         knowhere::IndexEnum::INDEX_FAISS_IVFFLAT,
         knowhere::metric::L2,
         knowhere::Version::GetCurrentVersion().VersionNumber(),
@@ -1010,6 +1013,13 @@ GenRandomIds(int rows, int64_t seed = 42) {
     auto ids_ds = GenIdsDataset(rows, ids);
     ids_ds->SetIsOwner(true);
     return ids_ds;
+}
+
+inline CCollection
+NewCollection(const char* schema_proto_blob) {
+    auto proto = std::string(schema_proto_blob);
+    auto collection = std::make_unique<milvus::segcore::Collection>(proto);
+    return (void*)collection.release();
 }
 
 }  // namespace milvus::segcore

@@ -64,6 +64,8 @@ func (node *QueryNode) GetComponentStates(ctx context.Context, req *milvuspb.Get
 	code := node.lifetime.GetState()
 	nodeID := common.NotRegisteredID
 
+	log.Debug("QueryNode current state", zap.Int64("NodeID", nodeID), zap.String("StateCode", code.String()))
+
 	if node.session != nil && node.session.Registered() {
 		nodeID = paramtable.GetNodeID()
 	}
@@ -254,8 +256,20 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 		node.composeIndexMeta(req.GetIndexInfoList(), req.Schema), req.GetLoadMeta())
 	collection := node.manager.Collection.Get(req.GetCollectionID())
 	collection.SetMetricType(req.GetLoadMeta().GetMetricType())
-	delegator, err := delegator.NewShardDelegator(ctx, req.GetCollectionID(), req.GetReplicaID(), channel.GetChannelName(), req.GetVersion(),
-		node.clusterManager, node.manager, node.tSafeManager, node.loader, node.factory, channel.GetSeekPosition().GetTimestamp())
+	delegator, err := delegator.NewShardDelegator(
+		ctx,
+		req.GetCollectionID(),
+		req.GetReplicaID(),
+		channel.GetChannelName(),
+		req.GetVersion(),
+		node.clusterManager,
+		node.manager,
+		node.tSafeManager,
+		node.loader,
+		node.factory,
+		channel.GetSeekPosition().GetTimestamp(),
+		node.queryHook,
+	)
 	if err != nil {
 		log.Warn("failed to create shard delegator", zap.Error(err))
 		return merr.Status(err), nil
@@ -311,6 +325,11 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 		pipeline.ExcludedSegments(droppedInfos...)
 	}
 
+	err = loadL0Segments(ctx, delegator, req)
+	if err != nil {
+		log.Warn("failed to load l0 segments", zap.Error(err))
+		return merr.Status(err), nil
+	}
 	err = loadGrowingSegments(ctx, delegator, req)
 	if err != nil {
 		msg := "failed to load growing segments"
@@ -447,16 +466,16 @@ func (node *QueryNode) LoadSegments(ctx context.Context, req *querypb.LoadSegmen
 		return merr.Success(), nil
 	}
 
+	node.manager.Collection.PutOrRef(req.GetCollectionID(), req.GetSchema(),
+		node.composeIndexMeta(req.GetIndexInfoList(), req.GetSchema()), req.GetLoadMeta())
+	defer node.manager.Collection.Unref(req.GetCollectionID(), 1)
+
 	if req.GetLoadScope() == querypb.LoadScope_Delta {
 		return node.loadDeltaLogs(ctx, req), nil
 	}
 	if req.GetLoadScope() == querypb.LoadScope_Index {
 		return node.loadIndex(ctx, req), nil
 	}
-
-	node.manager.Collection.PutOrRef(req.GetCollectionID(), req.GetSchema(),
-		node.composeIndexMeta(req.GetIndexInfoList(), req.GetSchema()), req.GetLoadMeta())
-	defer node.manager.Collection.Unref(req.GetCollectionID(), 1)
 
 	// Actual load segment
 	log.Info("start to load segments...")
@@ -882,7 +901,7 @@ func (node *QueryNode) QuerySegments(ctx context.Context, req *querypb.QueryRequ
 		return resp, nil
 	}
 
-	tr.CtxElapse(ctx, fmt.Sprintf("do query done, traceID = %s, fromSharedLeader = %t, vChannel = %s, segmentIDs = %v",
+	tr.CtxElapse(ctx, fmt.Sprintf("do query done, traceID = %s, fromShardLeader = %t, vChannel = %s, segmentIDs = %v",
 		traceID,
 		req.GetFromShardLeader(),
 		channel,
@@ -1094,7 +1113,7 @@ func (node *QueryNode) QueryStreamSegments(req *querypb.QueryRequest, srv queryp
 		return nil
 	}
 
-	tr.CtxElapse(ctx, fmt.Sprintf("do query done, traceID = %s, fromSharedLeader = %t, vChannel = %s, segmentIDs = %v",
+	tr.CtxElapse(ctx, fmt.Sprintf("do query done, traceID = %s, fromShardLeader = %t, vChannel = %s, segmentIDs = %v",
 		traceID,
 		req.GetFromShardLeader(),
 		channel,
@@ -1317,7 +1336,7 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 
 	// translate segment action
 	removeActions := make([]*querypb.SyncAction, 0)
-	addSegments := make(map[int64][]*querypb.SegmentLoadInfo)
+	group, ctx := errgroup.WithContext(ctx)
 	for _, action := range req.GetActions() {
 		log := log.With(zap.String("Action",
 			action.GetType().String()))
@@ -1331,7 +1350,26 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 				log.Warn("sync request from legacy querycoord without load info, skip")
 				continue
 			}
-			addSegments[action.GetNodeID()] = append(addSegments[action.GetNodeID()], action.GetInfo())
+
+			// to pass segment'version, we call load segment one by one
+			action := action
+			group.Go(func() error {
+				return shardDelegator.LoadSegments(ctx, &querypb.LoadSegmentsRequest{
+					Base: commonpbutil.NewMsgBase(
+						commonpbutil.WithMsgType(commonpb.MsgType_LoadSegments),
+						commonpbutil.WithMsgID(req.Base.GetMsgID()),
+					),
+					Infos:        []*querypb.SegmentLoadInfo{action.GetInfo()},
+					Schema:       req.GetSchema(),
+					LoadMeta:     req.GetLoadMeta(),
+					CollectionID: req.GetCollectionID(),
+					ReplicaID:    req.GetReplicaID(),
+					DstNodeID:    action.GetNodeID(),
+					Version:      action.GetVersion(),
+					NeedTransfer: false,
+					LoadScope:    querypb.LoadScope_Delta,
+				})
+			})
 		case querypb.SyncType_UpdateVersion:
 			log.Info("sync action", zap.Int64("TargetVersion", action.GetTargetVersion()))
 			pipeline := node.pipelineManager.Get(req.GetChannel())
@@ -1353,25 +1391,10 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 		}
 	}
 
-	for nodeID, infos := range addSegments {
-		err := shardDelegator.LoadSegments(ctx, &querypb.LoadSegmentsRequest{
-			Base: commonpbutil.NewMsgBase(
-				commonpbutil.WithMsgType(commonpb.MsgType_LoadSegments),
-				commonpbutil.WithMsgID(req.Base.GetMsgID()),
-			),
-			Infos:        infos,
-			Schema:       req.GetSchema(),
-			LoadMeta:     req.GetLoadMeta(),
-			CollectionID: req.GetCollectionID(),
-			ReplicaID:    req.GetReplicaID(),
-			DstNodeID:    nodeID,
-			Version:      req.GetVersion(),
-			NeedTransfer: false,
-			LoadScope:    querypb.LoadScope_Delta,
-		})
-		if err != nil {
-			return merr.Status(err), nil
-		}
+	err := group.Wait()
+	if err != nil {
+		log.Warn("failed to sync distribution", zap.Error(err))
+		return merr.Status(err), nil
 	}
 
 	for _, action := range removeActions {

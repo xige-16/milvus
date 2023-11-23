@@ -12,13 +12,13 @@
 package paramtable
 
 import (
-	"runtime"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 
 	"github.com/milvus-io/milvus/pkg/config"
+	"github.com/milvus-io/milvus/pkg/util/hardware"
 )
 
 func shouldPanic(t *testing.T, name string, f func()) {
@@ -279,6 +279,8 @@ func TestComponentParam(t *testing.T) {
 		assert.Equal(t, 10000, Params.BalanceCheckInterval.GetAsInt())
 		assert.Equal(t, 10000, Params.IndexCheckInterval.GetAsInt())
 		assert.Equal(t, 3, Params.CollectionRecoverTimesLimit.GetAsInt())
+		assert.Equal(t, false, Params.AutoBalance.GetAsBool())
+		assert.Equal(t, 10, Params.CheckAutoBalanceConfigInterval.GetAsInt())
 	})
 
 	t.Run("test queryNodeConfig", func(t *testing.T) {
@@ -297,17 +299,17 @@ func TestComponentParam(t *testing.T) {
 		chunkRows := Params.ChunkRows.GetAsInt64()
 		assert.Equal(t, int64(1024), chunkRows)
 
-		nlist := Params.GrowingIndexNlist.GetAsInt64()
+		nlist := Params.InterimIndexNlist.GetAsInt64()
 		assert.Equal(t, int64(128), nlist)
 
-		nprobe := Params.GrowingIndexNProbe.GetAsInt64()
+		nprobe := Params.InterimIndexNProbe.GetAsInt64()
 		assert.Equal(t, int64(16), nprobe)
 
 		assert.Equal(t, true, Params.GroupEnabled.GetAsBool())
 		assert.Equal(t, int32(10240), Params.MaxReceiveChanSize.GetAsInt32())
 		assert.Equal(t, int32(10240), Params.MaxUnsolvedQueueSize.GetAsInt32())
 		assert.Equal(t, 10.0, Params.CPURatio.GetAsFloat())
-		assert.Equal(t, uint32(runtime.GOMAXPROCS(0)), Params.KnowhereThreadPoolSize.GetAsUint32())
+		assert.Equal(t, uint32(hardware.GetCPUNum()), Params.KnowhereThreadPoolSize.GetAsUint32())
 
 		// chunk cache
 		assert.Equal(t, "willneed", Params.ReadAheadPolicy.GetValue())
@@ -319,17 +321,17 @@ func TestComponentParam(t *testing.T) {
 		chunkRows = Params.ChunkRows.GetAsInt64()
 		assert.Equal(t, int64(8192), chunkRows)
 
-		enableGrowingIndex := Params.EnableGrowingSegmentIndex.GetAsBool()
-		assert.Equal(t, true, enableGrowingIndex)
+		enableInterimIndex := Params.EnableTempSegmentIndex.GetAsBool()
+		assert.Equal(t, true, enableInterimIndex)
 
-		params.Save("queryNode.segcore.growing.enableIndex", "true")
-		enableGrowingIndex = Params.EnableGrowingSegmentIndex.GetAsBool()
-		assert.Equal(t, true, enableGrowingIndex)
+		params.Save("queryNode.segcore.interimIndex.enableIndex", "true")
+		enableInterimIndex = Params.EnableTempSegmentIndex.GetAsBool()
+		assert.Equal(t, true, enableInterimIndex)
 
-		nlist = Params.GrowingIndexNlist.GetAsInt64()
+		nlist = Params.InterimIndexNlist.GetAsInt64()
 		assert.Equal(t, int64(128), nlist)
 
-		nprobe = Params.GrowingIndexNProbe.GetAsInt64()
+		nprobe = Params.InterimIndexNProbe.GetAsInt64()
 		assert.Equal(t, int64(16), nprobe)
 
 		params.Remove("queryNode.segcore.growing.nlist")
@@ -351,6 +353,9 @@ func TestComponentParam(t *testing.T) {
 		assert.True(t, Params.EnableGarbageCollection.GetAsBool())
 		assert.Equal(t, Params.EnableActiveStandby.GetAsBool(), false)
 		t.Logf("dataCoord EnableActiveStandby = %t", Params.EnableActiveStandby.GetAsBool())
+
+		assert.Equal(t, false, Params.AutoBalance.GetAsBool())
+		assert.Equal(t, 10, Params.CheckAutoBalanceConfigInterval.GetAsInt())
 	})
 
 	t.Run("test dataNodeConfig", func(t *testing.T) {

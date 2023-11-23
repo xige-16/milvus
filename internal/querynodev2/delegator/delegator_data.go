@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sort"
 
 	"github.com/cockroachdb/errors"
 	"github.com/samber/lo"
@@ -28,6 +29,7 @@ import (
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
+	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/internal/proto/segcorepb"
 	"github.com/milvus-io/milvus/internal/querynodev2/cluster"
@@ -85,8 +87,18 @@ func (sd *shardDelegator) ProcessInsert(insertRecords map[int64]*InsertData) {
 		growing := sd.segmentManager.GetGrowing(segmentID)
 		if growing == nil {
 			var err error
-			growing, err = segments.NewSegment(sd.collection, segmentID, insertData.PartitionID, sd.collectionID, sd.vchannelName,
-				segments.SegmentTypeGrowing, 0, insertData.StartPosition, insertData.StartPosition)
+			growing, err = segments.NewSegment(
+				sd.collection,
+				segmentID,
+				insertData.PartitionID,
+				sd.collectionID,
+				sd.vchannelName,
+				segments.SegmentTypeGrowing,
+				0,
+				insertData.StartPosition,
+				insertData.StartPosition,
+				datapb.SegmentLevel_Legacy,
+			)
 			if err != nil {
 				log.Error("failed to create new segment",
 					zap.Int64("segmentID", segmentID),
@@ -186,7 +198,7 @@ func (sd *shardDelegator) ProcessDelete(deleteData []*DeleteData, ts uint64) {
 
 	offlineSegments := typeutil.NewConcurrentSet[int64]()
 
-	sealed, growing, version := sd.distribution.GetSegments(false)
+	sealed, growing, version := sd.distribution.PinOnlineSegments()
 
 	eg, ctx := errgroup.WithContext(context.Background())
 	for _, entry := range sealed {
@@ -225,7 +237,7 @@ func (sd *shardDelegator) ProcessDelete(deleteData []*DeleteData, ts uint64) {
 	// not error return in apply delete
 	_ = eg.Wait()
 
-	sd.distribution.FinishUsage(version)
+	sd.distribution.Unpin(version)
 	offlineSegIDs := offlineSegments.Collect()
 	if len(offlineSegIDs) > 0 {
 		log.Warn("failed to apply delete, mark segment offline", zap.Int64s("offlineSegments", offlineSegIDs))
@@ -262,7 +274,10 @@ func (sd *shardDelegator) applyDelete(ctx context.Context, nodeID int64, worker 
 					PrimaryKeys:  storage.ParsePrimaryKeys2IDs(delRecord.PrimaryKeys),
 					Timestamps:   delRecord.Timestamps,
 				})
-				if errors.Is(err, merr.ErrSegmentNotFound) {
+				if errors.Is(err, merr.ErrNodeNotFound) {
+					log.Warn("try to delete data on non-exist node")
+					return retry.Unrecoverable(err)
+				} else if errors.Is(err, merr.ErrSegmentNotFound) {
 					log.Warn("try to delete data of released segment")
 					return nil
 				} else if err != nil {
@@ -308,6 +323,30 @@ func (sd *shardDelegator) LoadGrowing(ctx context.Context, infos []*querypb.Segm
 		return err
 	}
 
+	for _, segment := range loaded {
+		log := log.With(
+			zap.Int64("segmentID", segment.ID()),
+		)
+		deletedPks, deletedTss := sd.GetLevel0Deletions(segment.Partition())
+		if len(deletedPks) == 0 {
+			continue
+		}
+
+		log.Info("forwarding L0 delete records...", zap.Int("deletionCount", len(deletedPks)))
+		err = segment.Delete(deletedPks, deletedTss)
+		if err != nil {
+			log.Warn("failed to forward L0 deletions to growing segment",
+				zap.Error(err),
+			)
+
+			// clear loaded growing segments
+			for _, segment := range loaded {
+				segment.Release()
+			}
+			return err
+		}
+	}
+
 	segmentIDs = lo.Map(loaded, func(segment segments.Segment, _ int) int64 { return segment.ID() })
 	log.Info("load growing segments done", zap.Int64s("segmentIDs", segmentIDs))
 
@@ -328,6 +367,10 @@ func (sd *shardDelegator) LoadGrowing(ctx context.Context, infos []*querypb.Segm
 
 // LoadSegments load segments local or remotely depends on the target node.
 func (sd *shardDelegator) LoadSegments(ctx context.Context, req *querypb.LoadSegmentsRequest) error {
+	if len(req.GetInfos()) == 0 {
+		return nil
+	}
+
 	log := sd.getLogger(ctx)
 
 	targetNodeID := req.GetDstNodeID()
@@ -393,7 +436,7 @@ func (sd *shardDelegator) LoadSegments(ctx context.Context, req *querypb.LoadSeg
 	}
 	log.Debug("work loads segments done")
 
-	// load index need no stream delete and distribution change
+	// load index segment need no stream delete and distribution change
 	if req.GetLoadScope() == querypb.LoadScope_Index {
 		return nil
 	}
@@ -406,14 +449,102 @@ func (sd *shardDelegator) LoadSegments(ctx context.Context, req *querypb.LoadSeg
 			Version:     req.GetVersion(),
 		}
 	})
-	log.Debug("load delete...")
-	err = sd.loadStreamDelete(ctx, candidates, infos, req.GetDeltaPositions(), targetNodeID, worker, entries)
-	if err != nil {
-		log.Warn("load stream delete failed", zap.Error(err))
-		return err
+	if req.GetInfos()[0].GetLevel() == datapb.SegmentLevel_L0 {
+		sd.GenerateLevel0DeletionCache()
+	} else {
+		log.Debug("load delete...")
+		err = sd.loadStreamDelete(ctx, candidates, infos, req.GetDeltaPositions(), targetNodeID, worker, entries)
+		if err != nil {
+			log.Warn("load stream delete failed", zap.Error(err))
+			return err
+		}
 	}
 
+	// alter distribution
+	sd.distribution.AddDistributions(entries...)
+
 	return nil
+}
+
+func (sd *shardDelegator) GetLevel0Deletions(partitionID int64) ([]storage.PrimaryKey, []storage.Timestamp) {
+	sd.level0Mut.RLock()
+	deleteData, ok1 := sd.level0Deletions[partitionID]
+	allPartitionsDeleteData, ok2 := sd.level0Deletions[common.InvalidPartitionID]
+	sd.level0Mut.RUnlock()
+	// we may need to merge the specified partition deletions and the all partitions deletions,
+	// so release the mutex as early as possible.
+
+	if ok1 && ok2 {
+		pks := make([]storage.PrimaryKey, 0, deleteData.RowCount+allPartitionsDeleteData.RowCount)
+		tss := make([]storage.Timestamp, 0, deleteData.RowCount+allPartitionsDeleteData.RowCount)
+
+		i := 0
+		j := 0
+		for i < int(deleteData.RowCount) || j < int(allPartitionsDeleteData.RowCount) {
+			if i == int(deleteData.RowCount) {
+				pks = append(pks, allPartitionsDeleteData.Pks[j])
+				tss = append(tss, allPartitionsDeleteData.Tss[j])
+				j++
+			} else if j == int(allPartitionsDeleteData.RowCount) {
+				pks = append(pks, deleteData.Pks[i])
+				tss = append(tss, deleteData.Tss[i])
+				i++
+			} else if deleteData.Tss[i] < allPartitionsDeleteData.Tss[j] {
+				pks = append(pks, deleteData.Pks[i])
+				tss = append(tss, deleteData.Tss[i])
+				i++
+			} else {
+				pks = append(pks, allPartitionsDeleteData.Pks[j])
+				tss = append(tss, allPartitionsDeleteData.Tss[j])
+				j++
+			}
+		}
+
+		return pks, tss
+	} else if ok1 {
+		return deleteData.Pks, deleteData.Tss
+	} else if ok2 {
+		return allPartitionsDeleteData.Pks, allPartitionsDeleteData.Tss
+	}
+
+	return nil, nil
+}
+
+func (sd *shardDelegator) GenerateLevel0DeletionCache() {
+	level0Segments := sd.segmentManager.GetBy(segments.WithLevel(datapb.SegmentLevel_L0))
+	deletions := make(map[int64]*storage.DeleteData)
+	for _, segment := range level0Segments {
+		segment := segment.(*segments.L0Segment)
+		pks, tss := segment.DeleteRecords()
+		deleteData, ok := deletions[segment.Partition()]
+		if !ok {
+			deleteData = storage.NewDeleteData(pks, tss)
+		} else {
+			deleteData.AppendBatch(pks, tss)
+		}
+		deletions[segment.Partition()] = deleteData
+	}
+
+	type DeletePair struct {
+		Pk storage.PrimaryKey
+		Ts storage.Timestamp
+	}
+	for _, deleteData := range deletions {
+		pairs := make([]DeletePair, deleteData.RowCount)
+		for i := range deleteData.Pks {
+			pairs[i] = DeletePair{deleteData.Pks[i], deleteData.Tss[i]}
+		}
+		sort.Slice(pairs, func(i, j int) bool {
+			return pairs[i].Ts < pairs[j].Ts
+		})
+		for i := range pairs {
+			deleteData.Pks[i], deleteData.Tss[i] = pairs[i].Pk, pairs[i].Ts
+		}
+	}
+
+	sd.level0Mut.Lock()
+	defer sd.level0Mut.Unlock()
+	sd.level0Deletions = deletions
 }
 
 func (sd *shardDelegator) loadStreamDelete(ctx context.Context,
@@ -435,6 +566,9 @@ func (sd *shardDelegator) loadStreamDelete(ctx context.Context,
 	// apply buffered delete for new segments
 	// no goroutines here since qnv2 has no load merging logic
 	for _, info := range infos {
+		log := log.With(
+			zap.Int64("segmentID", info.GetSegmentID()),
+		)
 		candidate := idCandidates[info.GetSegmentID()]
 		position := info.GetDeltaPosition()
 		if position == nil { // for compatibility of rolling upgrade from 2.2.x to 2.3
@@ -446,17 +580,44 @@ func (sd *shardDelegator) loadStreamDelete(ctx context.Context,
 			position = deltaPositions[0]
 		}
 
+		deletedPks, deletedTss := sd.GetLevel0Deletions(candidate.Partition())
 		deleteData := &storage.DeleteData{}
+		for i, pk := range deletedPks {
+			if candidate.MayPkExist(pk) {
+				deleteData.Append(pk, deletedTss[i])
+			}
+		}
+
+		if deleteData.RowCount > 0 {
+			log.Info("forward L0 delete to worker...",
+				zap.Int64("deleteRowNum", deleteData.RowCount),
+			)
+			err := worker.Delete(ctx, &querypb.DeleteRequest{
+				Base:         commonpbutil.NewMsgBase(commonpbutil.WithTargetID(targetNodeID)),
+				CollectionId: info.GetCollectionID(),
+				PartitionId:  info.GetPartitionID(),
+				SegmentId:    info.GetSegmentID(),
+				PrimaryKeys:  storage.ParsePrimaryKeys2IDs(deleteData.Pks),
+				Timestamps:   deleteData.Tss,
+			})
+			if err != nil {
+				log.Warn("failed to apply delete when LoadSegment", zap.Error(err))
+				return err
+			}
+		}
+
+		deleteData = &storage.DeleteData{}
 		// start position is dml position for segment
 		// if this position is before deleteBuffer's safe ts, it means some delete shall be read from msgstream
 		if position.GetTimestamp() < sd.deleteBuffer.SafeTs() {
 			log.Info("load delete from stream...")
-			var err error
-			deleteData, err = sd.readDeleteFromMsgstream(ctx, position, sd.deleteBuffer.SafeTs(), candidate)
+			streamDeleteData, err := sd.readDeleteFromMsgstream(ctx, position, sd.deleteBuffer.SafeTs(), candidate)
 			if err != nil {
 				log.Warn("failed to read delete data from msgstream", zap.Error(err))
 				return err
 			}
+
+			deleteData.Merge(streamDeleteData)
 			log.Info("load delete from stream done")
 		}
 
@@ -469,9 +630,7 @@ func (sd *shardDelegator) loadStreamDelete(ctx context.Context,
 				}
 				for i, pk := range record.DeleteData.Pks {
 					if candidate.MayPkExist(pk) {
-						deleteData.Pks = append(deleteData.Pks, pk)
-						deleteData.Tss = append(deleteData.Tss, record.DeleteData.Tss[i])
-						deleteData.RowCount++
+						deleteData.Append(pk, record.DeleteData.Tss[i])
 					}
 				}
 			}
@@ -502,8 +661,6 @@ func (sd *shardDelegator) loadStreamDelete(ctx context.Context,
 		sd.pkOracle.Register(candidate, targetNodeID)
 	}
 	log.Info("load delete done")
-	// alter distribution
-	sd.distribution.AddDistributions(entries...)
 
 	return nil
 }
@@ -590,6 +747,17 @@ func (sd *shardDelegator) ReleaseSegments(ctx context.Context, req *querypb.Rele
 	log := sd.getLogger(ctx)
 
 	targetNodeID := req.GetNodeID()
+	level0Segments := typeutil.NewSet(lo.Map(sd.segmentManager.GetBy(segments.WithLevel(datapb.SegmentLevel_L0)), func(segment segments.Segment, _ int) int64 {
+		return segment.ID()
+	})...)
+	hasLevel0 := false
+	for _, segmentID := range req.GetSegmentIDs() {
+		hasLevel0 = level0Segments.Contain(segmentID)
+		if hasLevel0 {
+			break
+		}
+	}
+
 	// add common log fields
 	log = log.With(
 		zap.Int64s("segmentIDs", req.GetSegmentIDs()),
@@ -654,6 +822,10 @@ func (sd *shardDelegator) ReleaseSegments(ctx context.Context, req *querypb.Rele
 			)
 		}
 		return err
+	}
+
+	if hasLevel0 {
+		sd.GenerateLevel0DeletionCache()
 	}
 
 	return nil

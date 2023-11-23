@@ -19,25 +19,23 @@ package datanode
 import (
 	"context"
 	"fmt"
-	"path"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/cockroachdb/errors"
 	"go.uber.org/zap"
 
+	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
 	"github.com/milvus-io/milvus/internal/datanode/allocator"
+	"github.com/milvus-io/milvus/internal/datanode/metacache"
+	"github.com/milvus-io/milvus/internal/datanode/syncmgr"
 	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/etcdpb"
 	"github.com/milvus-io/milvus/internal/storage"
-	"github.com/milvus-io/milvus/pkg/common"
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/funcutil"
 	"github.com/milvus-io/milvus/pkg/util/merr"
-	"github.com/milvus-io/milvus/pkg/util/metautil"
 	"github.com/milvus-io/milvus/pkg/util/paramtable"
 	"github.com/milvus-io/milvus/pkg/util/timerecord"
 	"github.com/milvus-io/milvus/pkg/util/tsoutil"
@@ -56,7 +54,8 @@ type iterator = storage.Iterator
 
 type compactor interface {
 	complete()
-	compact() (*datapb.CompactionResult, error)
+	// compact() (*datapb.CompactionResult, error)
+	compact() (*datapb.CompactionPlanResult, error)
 	injectDone(success bool)
 	stop()
 	getPlanID() UniqueID
@@ -71,8 +70,8 @@ type compactionTask struct {
 	downloader
 	uploader
 	compactor
-	Channel
-	flushManager
+	metaCache metacache.MetaCache
+	syncMgr   syncmgr.SyncManager
 	allocator.Allocator
 
 	plan *datapb.CompactionPlan
@@ -83,15 +82,14 @@ type compactionTask struct {
 	done         chan struct{}
 	tr           *timerecord.TimeRecorder
 	chunkManager storage.ChunkManager
-	inject       *taskInjection
 }
 
 func newCompactionTask(
 	ctx context.Context,
 	dl downloader,
 	ul uploader,
-	channel Channel,
-	fm flushManager,
+	metaCache metacache.MetaCache,
+	syncMgr syncmgr.SyncManager,
 	alloc allocator.Allocator,
 	plan *datapb.CompactionPlan,
 	chunkManager storage.ChunkManager,
@@ -103,8 +101,8 @@ func newCompactionTask(
 
 		downloader:   dl,
 		uploader:     ul,
-		Channel:      channel,
-		flushManager: fm,
+		syncMgr:      syncMgr,
+		metaCache:    metaCache,
 		Allocator:    alloc,
 		plan:         plan,
 		tr:           timerecord.NewTimeRecorder("compactionTask"),
@@ -135,11 +133,12 @@ func (t *compactionTask) getChannelName() string {
 func (t *compactionTask) getNumRows() (int64, error) {
 	numRows := int64(0)
 	for _, binlog := range t.plan.SegmentBinlogs {
-		seg := t.Channel.getSegment(binlog.GetSegmentID())
-		if seg == nil {
+		seg, ok := t.metaCache.GetSegmentByID(binlog.GetSegmentID())
+		if !ok {
 			return 0, merr.WrapErrSegmentNotFound(binlog.GetSegmentID(), "get compaction segments num rows failed")
 		}
-		numRows += seg.numRows
+
+		numRows += seg.NumOfRows()
 	}
 
 	return numRows, nil
@@ -357,7 +356,10 @@ func (t *compactionTask) merge(
 		return nil, nil, 0, err
 	}
 
-	stats := storage.NewPrimaryKeyStats(pkID, int64(pkType), oldRowNums)
+	stats, err := storage.NewPrimaryKeyStats(pkID, int64(pkType), oldRowNums)
+	if err != nil {
+		return nil, nil, 0, err
+	}
 	// initial timestampFrom, timestampTo = -1, -1 is an illegal value, only to mark initial state
 	var (
 		timestampTo   int64 = -1
@@ -477,7 +479,7 @@ func (t *compactionTask) merge(
 	return insertPaths, statPaths, numRows, nil
 }
 
-func (t *compactionTask) compact() (*datapb.CompactionResult, error) {
+func (t *compactionTask) compact() (*datapb.CompactionPlanResult, error) {
 	log := log.With(zap.Int64("planID", t.plan.GetPlanID()))
 	compactStart := time.Now()
 	if ok := funcutil.CheckCtxValid(t.ctx); !ok {
@@ -522,108 +524,17 @@ func (t *compactionTask) compact() (*datapb.CompactionResult, error) {
 
 	// Inject to stop flush
 	injectStart := time.Now()
-	ti := newTaskInjection(len(segIDs), func(pack *segmentFlushPack) {
-		collectionID := meta.GetID()
-		pack.segmentID = targetSegID
-		for _, insertLog := range pack.insertLogs {
-			splits := strings.Split(insertLog.LogPath, "/")
-			if len(splits) < 2 {
-				pack.err = fmt.Errorf("bad insert log path: %s", insertLog.LogPath)
-				return
-			}
-			logID, err := strconv.ParseInt(splits[len(splits)-1], 10, 64)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			fieldID, err := strconv.ParseInt(splits[len(splits)-2], 10, 64)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			blobKey := metautil.JoinIDPath(collectionID, partID, targetSegID, fieldID, logID)
-			blobPath := path.Join(t.chunkManager.RootPath(), common.SegmentInsertLogPath, blobKey)
-			blob, err := t.chunkManager.Read(t.ctx, insertLog.LogPath)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			err = t.chunkManager.Write(t.ctx, blobPath, blob)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			insertLog.LogPath = blobPath
-		}
-
-		for _, deltaLog := range pack.deltaLogs {
-			splits := strings.Split(deltaLog.LogPath, "/")
-			if len(splits) < 1 {
-				pack.err = fmt.Errorf("delta stats log path: %s", deltaLog.LogPath)
-				return
-			}
-			logID, err := strconv.ParseInt(splits[len(splits)-1], 10, 64)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			blobKey := metautil.JoinIDPath(collectionID, partID, targetSegID, logID)
-			blobPath := path.Join(t.chunkManager.RootPath(), common.SegmentDeltaLogPath, blobKey)
-			blob, err := t.chunkManager.Read(t.ctx, deltaLog.LogPath)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			err = t.chunkManager.Write(t.ctx, blobPath, blob)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			deltaLog.LogPath = blobPath
-		}
-
-		for _, statsLog := range pack.statsLogs {
-			splits := strings.Split(statsLog.LogPath, "/")
-			if len(splits) < 2 {
-				pack.err = fmt.Errorf("bad stats log path: %s", statsLog.LogPath)
-				return
-			}
-			logID, err := strconv.ParseInt(splits[len(splits)-1], 10, 64)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			fieldID, err := strconv.ParseInt(splits[len(splits)-2], 10, 64)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			blobKey := metautil.JoinIDPath(collectionID, partID, targetSegID, fieldID, logID)
-			blobPath := path.Join(t.chunkManager.RootPath(), common.SegmentStatslogPath, blobKey)
-
-			blob, err := t.chunkManager.Read(t.ctx, statsLog.LogPath)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			err = t.chunkManager.Write(t.ctx, blobPath, blob)
-			if err != nil {
-				pack.err = err
-				return
-			}
-			statsLog.LogPath = blobPath
-		}
-	})
+	for _, segID := range segIDs {
+		t.syncMgr.Block(segID)
+	}
+	log.Info("compact inject elapse", zap.Duration("elapse", time.Since(injectStart)))
 	defer func() {
-		// the injection will be closed if fail to compact
-		if t.inject == nil {
-			close(ti.injectOver)
+		if err != nil {
+			for _, segID := range segIDs {
+				t.syncMgr.Unblock(segID)
+			}
 		}
 	}()
-
-	t.injectFlush(ti, segIDs...)
-	<-ti.Injected()
-	log.Info("compact inject elapse", zap.Duration("elapse", time.Since(injectStart)))
 
 	dblobs := make(map[UniqueID][]*Blob)
 	allPath := make([][]string, 0)
@@ -689,16 +600,13 @@ func (t *compactionTask) compact() (*datapb.CompactionResult, error) {
 		return nil, err
 	}
 
-	pack := &datapb.CompactionResult{
-		PlanID:              t.plan.GetPlanID(),
+	pack := &datapb.CompactionSegment{
 		SegmentID:           targetSegID,
 		InsertLogs:          inPaths,
 		Field2StatslogPaths: statsPaths,
 		NumOfRows:           numRows,
 		Channel:             t.plan.GetChannel(),
 	}
-
-	t.inject = ti
 
 	log.Info("compact done",
 		zap.Int64("targetSegmentID", targetSegID),
@@ -712,14 +620,18 @@ func (t *compactionTask) compact() (*datapb.CompactionResult, error) {
 	metrics.DataNodeCompactionLatency.WithLabelValues(fmt.Sprint(paramtable.GetNodeID())).Observe(float64(t.tr.ElapseSpan().Milliseconds()))
 	metrics.DataNodeCompactionLatencyInQueue.WithLabelValues(fmt.Sprint(paramtable.GetNodeID())).Observe(float64(durInQueue.Milliseconds()))
 
-	return pack, nil
+	planResult := &datapb.CompactionPlanResult{
+		State:    commonpb.CompactionState_Completed,
+		PlanID:   t.getPlanID(),
+		Segments: []*datapb.CompactionSegment{pack},
+	}
+
+	return planResult, nil
 }
 
 func (t *compactionTask) injectDone(success bool) {
-	if t.inject != nil {
-		uninjectStart := time.Now()
-		t.inject.injectDone(success)
-		log.Info("uninject elapse in ms", zap.Int64("planID", t.plan.GetPlanID()), zap.Duration("elapse", time.Since(uninjectStart)))
+	for _, binlog := range t.plan.SegmentBinlogs {
+		t.syncMgr.Unblock(binlog.SegmentID)
 	}
 }
 
@@ -909,17 +821,13 @@ func interface2FieldData(schemaDataType schemapb.DataType, content []interface{}
 }
 
 func (t *compactionTask) getSegmentMeta(segID UniqueID) (UniqueID, UniqueID, *etcdpb.CollectionMeta, error) {
-	collID, partID, err := t.getCollectionAndPartitionID(segID)
-	if err != nil {
-		return -1, -1, nil, err
+	collID := t.metaCache.Collection()
+	seg, ok := t.metaCache.GetSegmentByID(segID)
+	if !ok {
+		return -1, -1, nil, merr.WrapErrSegmentNotFound(segID)
 	}
-
-	// TODO current compaction timestamp replace zero? why?
-	//  Bad desgin of describe collection.
-	sch, err := t.getCollectionSchema(collID, 0)
-	if err != nil {
-		return -1, -1, nil, err
-	}
+	partID := seg.PartitionID()
+	sch := t.metaCache.Schema()
 
 	meta := &etcdpb.CollectionMeta{
 		ID:     collID,
@@ -929,7 +837,7 @@ func (t *compactionTask) getSegmentMeta(segID UniqueID) (UniqueID, UniqueID, *et
 }
 
 func (t *compactionTask) getCollection() UniqueID {
-	return t.getCollectionID()
+	return t.metaCache.Collection()
 }
 
 func (t *compactionTask) GetCurrentTime() typeutil.Timestamp {

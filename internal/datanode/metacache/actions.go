@@ -19,31 +19,48 @@ package metacache
 import (
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
+	"github.com/milvus-io/milvus/internal/proto/datapb"
+	"github.com/milvus-io/milvus/pkg/common"
+	"github.com/milvus-io/milvus/pkg/util/typeutil"
 )
 
 type SegmentFilter func(info *SegmentInfo) bool
 
 func WithPartitionID(partitionID int64) SegmentFilter {
 	return func(info *SegmentInfo) bool {
-		return info.partitionID == partitionID
+		return partitionID == common.InvalidPartitionID || info.partitionID == partitionID
 	}
 }
 
-func WithSegmentID(segmentID int64) SegmentFilter {
+func WithSegmentIDs(segmentIDs ...int64) SegmentFilter {
+	set := typeutil.NewSet[int64](segmentIDs...)
 	return func(info *SegmentInfo) bool {
-		return info.segmentID == segmentID
+		return set.Contain(info.segmentID)
 	}
 }
 
-func WithSegmentState(state commonpb.SegmentState) SegmentFilter {
+func WithSegmentState(states ...commonpb.SegmentState) SegmentFilter {
+	set := typeutil.NewSet(states...)
 	return func(info *SegmentInfo) bool {
-		return info.state == state
+		return set.Len() > 0 && set.Contain(info.state)
 	}
 }
 
 func WithStartPosNotRecorded() SegmentFilter {
 	return func(info *SegmentInfo) bool {
 		return !info.startPosRecorded
+	}
+}
+
+func WithImporting() SegmentFilter {
+	return func(info *SegmentInfo) bool {
+		return info.importing
+	}
+}
+
+func WithLevel(level datapb.SegmentLevel) SegmentFilter {
+	return func(info *SegmentInfo) bool {
+		return info.level == level
 	}
 }
 
@@ -63,13 +80,51 @@ func UpdateCheckpoint(checkpoint *msgpb.MsgPosition) SegmentAction {
 
 func UpdateNumOfRows(numOfRows int64) SegmentAction {
 	return func(info *SegmentInfo) {
-		info.numOfRows = numOfRows
+		info.flushedRows = numOfRows
+	}
+}
+
+func UpdateBufferedRows(bufferedRows int64) SegmentAction {
+	return func(info *SegmentInfo) {
+		info.bufferRows = bufferedRows
 	}
 }
 
 func RollStats() SegmentAction {
 	return func(info *SegmentInfo) {
 		info.bfs.Roll()
+	}
+}
+
+func CompactTo(compactTo int64) SegmentAction {
+	return func(info *SegmentInfo) {
+		info.compactTo = compactTo
+	}
+}
+
+func UpdateImporting(importing bool) SegmentAction {
+	return func(info *SegmentInfo) {
+		info.importing = importing
+	}
+}
+
+func StartSyncing(batchSize int64) SegmentAction {
+	return func(info *SegmentInfo) {
+		info.syncingRows += batchSize
+		info.bufferRows -= batchSize
+	}
+}
+
+func FinishSyncing(batchSize int64) SegmentAction {
+	return func(info *SegmentInfo) {
+		info.flushedRows += batchSize
+		info.syncingRows -= batchSize
+	}
+}
+
+func SetStartPosRecorded(flag bool) SegmentAction {
+	return func(info *SegmentInfo) {
+		info.startPosRecorded = flag
 	}
 }
 

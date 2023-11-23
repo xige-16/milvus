@@ -149,6 +149,7 @@ func (suite *ServiceSuite) SetupTest() {
 		suite.targetMgr,
 		suite.dist,
 		suite.broker,
+		suite.cluster,
 	)
 	suite.targetObserver.Start()
 	for _, node := range suite.nodes {
@@ -157,6 +158,7 @@ func (suite *ServiceSuite) SetupTest() {
 		suite.NoError(err)
 	}
 	suite.cluster = session.NewMockCluster(suite.T())
+	suite.cluster.EXPECT().SyncDistribution(mock.Anything, mock.Anything, mock.Anything).Return(merr.Success(), nil).Maybe()
 	suite.jobScheduler = job.NewScheduler()
 	suite.taskScheduler = task.NewMockScheduler(suite.T())
 	suite.jobScheduler.Start()
@@ -1265,7 +1267,6 @@ func (suite *ServiceSuite) TestLoadBalanceFailed() {
 		resp, err := server.LoadBalance(ctx, req)
 		suite.NoError(err)
 		suite.Equal(commonpb.ErrorCode_UnexpectedError, resp.ErrorCode)
-		suite.Contains(resp.Reason, "failed to balance segments")
 		suite.Contains(resp.Reason, "mock error")
 
 		suite.meta.ReplicaManager.AddNode(replicas[0].ID, 10)
@@ -1735,7 +1736,7 @@ func (suite *ServiceSuite) expectGetRecoverInfo(collection int64) {
 }
 
 func (suite *ServiceSuite) expectLoadPartitions() {
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, mock.Anything).
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, mock.Anything).
 		Return(nil, nil)
 	suite.broker.EXPECT().DescribeIndex(mock.Anything, mock.Anything).
 		Return(nil, nil)

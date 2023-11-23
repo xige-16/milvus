@@ -29,6 +29,7 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/pkg/common"
 	"github.com/milvus-io/milvus/pkg/log"
+	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/merr"
 )
 
@@ -129,9 +130,15 @@ func getCollectionTTL(properties map[string]string) (time.Duration, error) {
 	return Params.CommonCfg.EntityExpirationTTL.GetAsDuration(time.Second), nil
 }
 
-func getCompactedSegmentSize(s *datapb.CompactionResult) int64 {
-	var segmentSize int64
+func UpdateCompactionSegmentSizeMetrics(segments []*datapb.CompactionSegment) {
+	for _, seg := range segments {
+		size := getCompactedSegmentSize(seg)
+		metrics.DataCoordCompactedSegmentSize.WithLabelValues().Observe(float64(size))
+	}
+}
 
+func getCompactedSegmentSize(s *datapb.CompactionSegment) int64 {
+	var segmentSize int64
 	if s != nil {
 		for _, binlogs := range s.GetInsertLogs() {
 			for _, l := range binlogs.GetBinlogs() {
@@ -188,4 +195,25 @@ func parseBuildIDFromFilePath(key string) (UniqueID, error) {
 		return strconv.ParseInt(ss[len(ss)-2], 10, 64)
 	}
 	return strconv.ParseInt(ss[len(ss)-1], 10, 64)
+}
+
+func getFieldBinlogs(id UniqueID, binlogs []*datapb.FieldBinlog) *datapb.FieldBinlog {
+	for _, binlog := range binlogs {
+		if id == binlog.GetFieldID() {
+			return binlog
+		}
+	}
+	return nil
+}
+
+func mergeFieldBinlogs(currentBinlogs []*datapb.FieldBinlog, newBinlogs []*datapb.FieldBinlog) []*datapb.FieldBinlog {
+	for _, newBinlog := range newBinlogs {
+		fieldBinlogs := getFieldBinlogs(newBinlog.GetFieldID(), currentBinlogs)
+		if fieldBinlogs == nil {
+			currentBinlogs = append(currentBinlogs, newBinlog)
+		} else {
+			fieldBinlogs.Binlogs = append(fieldBinlogs.Binlogs, newBinlog.Binlogs...)
+		}
+	}
+	return currentBinlogs
 }

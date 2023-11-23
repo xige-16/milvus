@@ -40,7 +40,7 @@ func (s *SegmentFilterSuite) TestFilters() {
 	s.True(filter(info))
 
 	segmentID := int64(10001)
-	filter = WithSegmentID(segmentID)
+	filter = WithSegmentIDs(segmentID)
 	info.segmentID = segmentID + 1
 	s.False(filter(info))
 	info.segmentID = segmentID
@@ -89,6 +89,11 @@ func (s *SegmentActionSuite) TestActions() {
 	action = UpdateNumOfRows(numOfRows)
 	action(info)
 	s.Equal(numOfRows, info.NumOfRows())
+
+	compactTo := int64(1002)
+	action = CompactTo(compactTo)
+	action(info)
+	s.Equal(compactTo, info.CompactTo())
 }
 
 func (s *SegmentActionSuite) TestMergeActions() {

@@ -43,10 +43,8 @@ class Array {
                 length_ = field_data.bool_data().data().size();
                 auto data = new bool[length_];
                 size_ = length_;
-                offsets_.reserve(length_);
                 for (int i = 0; i < length_; ++i) {
                     data[i] = field_data.bool_data().data(i);
-                    offsets_.push_back(sizeof(bool) * i);
                 }
                 data_ = reinterpret_cast<char*>(data);
                 break;
@@ -56,11 +54,9 @@ class Array {
                 length_ = field_data.int_data().data().size();
                 size_ = length_ * sizeof(int32_t);
                 data_ = new char[size_];
-                offsets_.reserve(length_);
                 for (int i = 0; i < length_; ++i) {
                     reinterpret_cast<int*>(data_)[i] =
                         field_data.int_data().data(i);
-                    offsets_.push_back(sizeof(int32_t) * i);
                 }
                 break;
             }
@@ -69,11 +65,9 @@ class Array {
                 length_ = field_data.long_data().data().size();
                 size_ = length_ * sizeof(int64_t);
                 data_ = new char[size_];
-                offsets_.reserve(length_);
                 for (int i = 0; i < length_; ++i) {
                     reinterpret_cast<int64_t*>(data_)[i] =
                         field_data.long_data().data(i);
-                    offsets_.push_back(sizeof(int64_t) * i);
                 }
                 break;
             }
@@ -82,11 +76,9 @@ class Array {
                 length_ = field_data.float_data().data().size();
                 size_ = length_ * sizeof(float);
                 data_ = new char[size_];
-                offsets_.reserve(length_);
                 for (int i = 0; i < length_; ++i) {
                     reinterpret_cast<float*>(data_)[i] =
                         field_data.float_data().data(i);
-                    offsets_.push_back(sizeof(float) * i);
                 }
                 break;
             }
@@ -95,11 +87,9 @@ class Array {
                 length_ = field_data.double_data().data().size();
                 size_ = length_ * sizeof(double);
                 data_ = new char[size_];
-                offsets_.reserve(length_);
                 for (int i = 0; i < length_; ++i) {
                     reinterpret_cast<double*>(data_)[i] =
                         field_data.double_data().data(i);
-                    offsets_.push_back(sizeof(double) * i);
                 }
                 break;
             }
@@ -130,13 +120,23 @@ class Array {
           size_t size,
           DataType element_type,
           std::vector<uint64_t>&& element_offsets)
-        : length_(element_offsets.size()),
-          size_(size),
+        : size_(size),
           offsets_(std::move(element_offsets)),
           element_type_(element_type) {
         delete[] data_;
         data_ = new char[size];
         std::copy(data, data + size, data_);
+        if (datatype_is_variable(element_type_)) {
+            length_ = offsets_.size();
+        } else {
+            // int8, int16, int32 are all promoted to int32
+            if (element_type_ == DataType::INT8 ||
+                element_type_ == DataType::INT16) {
+                length_ = size / sizeof(int32_t);
+            } else {
+                length_ = size / datatype_sizeof(element_type_);
+            }
+        }
     }
 
     Array(const Array& array) noexcept
@@ -238,11 +238,11 @@ class Array {
             index >= 0 && index < length_,
             fmt::format(
                 "index out of range, index={}, length={}", index, length_));
-        size_t element_length = (index == length_ - 1)
-                                    ? size_ - offsets_.back()
-                                    : offsets_[index + 1] - offsets_[index];
         if constexpr (std::is_same_v<T, std::string> ||
                       std::is_same_v<T, std::string_view>) {
+            size_t element_length = (index == length_ - 1)
+                                        ? size_ - offsets_.back()
+                                        : offsets_[index + 1] - offsets_[index];
             return T(data_ + offsets_[index], element_length);
         }
         if constexpr (std::is_same_v<T, int> || std::is_same_v<T, int64_t> ||
@@ -443,9 +443,19 @@ class ArrayView {
               std::vector<uint64_t>&& element_offsets)
         : size_(size),
           element_type_(element_type),
-          offsets_(std::move(element_offsets)),
-          length_(element_offsets.size()) {
+          offsets_(std::move(element_offsets)) {
         data_ = data;
+        if (datatype_is_variable(element_type_)) {
+            length_ = offsets_.size();
+        } else {
+            // int8, int16, int32 are all promoted to int32
+            if (element_type_ == DataType::INT8 ||
+                element_type_ == DataType::INT16) {
+                length_ = size / sizeof(int32_t);
+            } else {
+                length_ = size / datatype_sizeof(element_type_);
+            }
+        }
     }
 
     template <typename T>
@@ -455,11 +465,12 @@ class ArrayView {
             index >= 0 && index < length_,
             fmt::format(
                 "index out of range, index={}, length={}", index, length_));
-        size_t element_length = (index == length_ - 1)
-                                    ? size_ - offsets_.back()
-                                    : offsets_[index + 1] - offsets_[index];
+
         if constexpr (std::is_same_v<T, std::string> ||
                       std::is_same_v<T, std::string_view>) {
+            size_t element_length = (index == length_ - 1)
+                                        ? size_ - offsets_.back()
+                                        : offsets_[index + 1] - offsets_[index];
             return T(data_ + offsets_[index], element_length);
         }
         if constexpr (std::is_same_v<T, int> || std::is_same_v<T, int64_t> ||

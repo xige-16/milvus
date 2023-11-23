@@ -60,3 +60,23 @@ case "${unameOut}" in
 esac
 
 popd
+
+pushd ${ROOT_DIR}/cmake_build/thirdparty
+
+git clone --depth=1 --branch v0.42.0 https://github.com/apache/incubator-opendal.git opendal
+cd opendal
+if command -v cargo >/dev/null 2>&1; then
+    echo "cargo exists"
+else
+    bash -c "curl https://sh.rustup.rs -sSf | sh -s -- -y" || { echo 'rustup install failed'; exit 1;}
+    source $HOME/.cargo/env
+fi
+pushd bindings/c
+cargo build --release --verbose || { echo 'opendal_c build failed'; exit 1; }
+popd
+mkdir -p ${ROOT_DIR}/internal/core/output/lib
+mkdir -p ${ROOT_DIR}/internal/core/output/include
+cp target/release/libopendal_c.a ${ROOT_DIR}/internal/core/output/lib/libopendal_c.a
+cp bindings/c/include/opendal.h ${ROOT_DIR}/internal/core/output/include/opendal.h
+
+popd

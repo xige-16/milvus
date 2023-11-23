@@ -18,6 +18,7 @@
 #include "query/ExprImpl.h"
 #include "segcore/Reduce.h"
 #include "segcore/reduce_c.h"
+#include "test_utils/DataGen.h"
 #include "test_utils/PbHelper.h"
 #include "test_utils/indexbuilder_test_utils.h"
 
@@ -175,13 +176,13 @@ TEST(Float16, GetVector) {
     std::map<std::string, std::string> type_params = {{"dim", "128"}};
     FieldIndexMeta fieldIndexMeta(
         vec, std::move(index_params), std::move(type_params));
-    auto& config = SegcoreConfig::default_config();
+    auto config = SegcoreConfig::default_config();
     config.set_chunk_rows(1024);
-    config.set_enable_growing_segment_index(true);
+    config.set_enable_interim_segment_index(true);
     std::map<FieldId, FieldIndexMeta> filedMap = {{vec, fieldIndexMeta}};
     IndexMetaPtr metaPtr =
         std::make_shared<CollectionIndexMeta>(100000, std::move(filedMap));
-    auto segment_growing = CreateGrowingSegment(schema, metaPtr);
+    auto segment_growing = CreateGrowingSegment(schema, metaPtr, 1, config);
     auto segment = dynamic_cast<SegmentGrowingImpl*>(segment_growing.get());
 
     int64_t per_batch = 5000;
@@ -253,34 +254,10 @@ generate_collection_schema(std::string metric_type, int dim, bool is_fp16) {
     return schema_string;
 }
 
-CCollection
-NewCollection(const char* schema_proto_blob) {
-    auto proto = std::string(schema_proto_blob);
-    auto collection = std::make_unique<milvus::segcore::Collection>(proto);
-    return (void*)collection.release();
-}
-
 TEST(Float16, CApiCPlan) {
     std::string schema_string =
         generate_collection_schema(knowhere::metric::L2, 16, true);
     auto collection = NewCollection(schema_string.c_str());
-
-    //  const char* dsl_string = R"(
-    //  {
-    //      "bool": {
-    //          "vector": {
-    //              "fakevec": {
-    //                  "metric_type": "L2",
-    //                  "params": {
-    //                      "nprobe": 10
-    //                  },
-    //                  "query": "$0",
-    //                  "topk": 10,
-    //                  "round_decimal": 3
-    //             }
-    //          }
-    //      }
-    // })";
 
     milvus::proto::plan::PlanNode plan_node;
     auto vector_anns = plan_node.mutable_vector_anns();

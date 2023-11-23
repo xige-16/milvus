@@ -80,14 +80,14 @@ type indexBuilder struct {
 	policy                    buildIndexPolicy
 	nodeManager               *IndexNodeManager
 	chunkManager              storage.ChunkManager
-	indexEngineVersionManager *IndexEngineVersionManager
+	indexEngineVersionManager IndexEngineVersionManager
 }
 
 func newIndexBuilder(
 	ctx context.Context,
 	metaTable *meta, nodeManager *IndexNodeManager,
 	chunkManager storage.ChunkManager,
-	indexEngineVersionManager *IndexEngineVersionManager,
+	indexEngineVersionManager IndexEngineVersionManager,
 ) *indexBuilder {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -360,12 +360,12 @@ func (ib *indexBuilder) getTaskState(buildID, nodeID UniqueID) indexTaskState {
 		if err != nil {
 			log.Ctx(ib.ctx).Warn("IndexCoord get jobs info from IndexNode fail", zap.Int64("nodeID", nodeID),
 				zap.Error(err))
-			return indexTaskInProgress
+			return indexTaskRetry
 		}
 		if response.GetStatus().GetErrorCode() != commonpb.ErrorCode_Success {
 			log.Ctx(ib.ctx).Warn("IndexCoord get jobs info from IndexNode fail", zap.Int64("nodeID", nodeID),
 				zap.Int64("buildID", buildID), zap.String("fail reason", response.GetStatus().GetReason()))
-			return indexTaskInProgress
+			return indexTaskRetry
 		}
 
 		// indexInfos length is always one.

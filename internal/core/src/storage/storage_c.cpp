@@ -15,6 +15,7 @@
 // limitations under the License.
 
 #include "storage/storage_c.h"
+#include "storage/prometheus_client.h"
 #include "storage/RemoteChunkManagerSingleton.h"
 #include "storage/LocalChunkManagerSingleton.h"
 #include "storage/ChunkCacheSingleton.h"
@@ -66,6 +67,8 @@ InitRemoteChunkManagerSingleton(CStorageConfig c_storage_config) {
             std::string(c_storage_config.cloud_provider);
         storage_config.iam_endpoint =
             std::string(c_storage_config.iam_endpoint);
+        storage_config.cloud_provider =
+            std::string(c_storage_config.cloud_provider);
         storage_config.log_level = std::string(c_storage_config.log_level);
         storage_config.useSSL = c_storage_config.useSSL;
         storage_config.useIAM = c_storage_config.useIAM;
@@ -95,4 +98,14 @@ InitChunkCacheSingleton(const char* c_dir_path, const char* read_ahead_policy) {
 void
 CleanRemoteChunkManagerSingleton() {
     milvus::storage::RemoteChunkManagerSingleton::GetInstance().Release();
+}
+
+char*
+GetStorageMetrics() {
+    auto str = milvus::storage::prometheusClient->GetMetrics();
+    auto len = str.length();
+    char* res = (char*)malloc(len + 1);
+    memcpy(res, str.data(), len);
+    res[len] = '\0';
+    return res;
 }

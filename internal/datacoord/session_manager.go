@@ -31,6 +31,7 @@ import (
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/commonpbutil"
+	"github.com/milvus-io/milvus/pkg/util/merr"
 	"github.com/milvus-io/milvus/pkg/util/paramtable"
 	"github.com/milvus-io/milvus/pkg/util/retry"
 	"github.com/milvus-io/milvus/pkg/util/tsoutil"
@@ -226,11 +227,11 @@ func (c *SessionManager) execImport(ctx context.Context, nodeID int64, itr *data
 	log.Info("success to import", zap.Int64("node", nodeID), zap.Any("import task", itr))
 }
 
-func (c *SessionManager) GetCompactionState() map[int64]*datapb.CompactionStateResult {
+func (c *SessionManager) GetCompactionPlansResults() map[int64]*datapb.CompactionPlanResult {
 	wg := sync.WaitGroup{}
 	ctx := context.Background()
 
-	plans := typeutil.NewConcurrentMap[int64, *datapb.CompactionStateResult]()
+	plans := typeutil.NewConcurrentMap[int64, *datapb.CompactionPlanResult]()
 	c.sessions.RLock()
 	for nodeID, s := range c.sessions.data {
 		wg.Add(1)
@@ -249,15 +250,12 @@ func (c *SessionManager) GetCompactionState() map[int64]*datapb.CompactionStateR
 					commonpbutil.WithSourceID(paramtable.GetNodeID()),
 				),
 			})
-			if err != nil {
+
+			if err := merr.CheckRPCCall(resp, err); err != nil {
 				log.Info("Get State failed", zap.Error(err))
 				return
 			}
 
-			if resp.GetStatus().GetErrorCode() != commonpb.ErrorCode_Success {
-				log.Info("Get State failed", zap.String("Reason", resp.GetStatus().GetReason()))
-				return
-			}
 			for _, rst := range resp.GetResults() {
 				plans.Insert(rst.PlanID, rst)
 			}
@@ -266,8 +264,8 @@ func (c *SessionManager) GetCompactionState() map[int64]*datapb.CompactionStateR
 	c.sessions.RUnlock()
 	wg.Wait()
 
-	rst := make(map[int64]*datapb.CompactionStateResult)
-	plans.Range(func(planID int64, result *datapb.CompactionStateResult) bool {
+	rst := make(map[int64]*datapb.CompactionPlanResult)
+	plans.Range(func(planID int64, result *datapb.CompactionPlanResult) bool {
 		rst[planID] = result
 		return true
 	})
@@ -294,6 +292,46 @@ func (c *SessionManager) FlushChannels(ctx context.Context, nodeID int64, req *d
 	}
 	log.Info("SessionManager.FlushChannels successfully")
 	return nil
+}
+
+func (c *SessionManager) NotifyChannelOperation(ctx context.Context, nodeID int64, req *datapb.ChannelOperationsRequest) error {
+	log := log.Ctx(ctx).With(zap.Int64("nodeID", nodeID))
+	cli, err := c.getClient(ctx, nodeID)
+	if err != nil {
+		log.Info("failed to get dataNode client", zap.Error(err))
+		return err
+	}
+	ctx, cancel := context.WithTimeout(ctx, Params.DataCoordCfg.ChannelOperationRPCTimeout.GetAsDuration(time.Second))
+	defer cancel()
+	resp, err := cli.NotifyChannelOperation(ctx, req)
+	if err := merr.CheckRPCCall(resp, err); err != nil {
+		log.Warn("Notify channel operations failed", zap.Error(err))
+		return err
+	}
+	return nil
+}
+
+func (c *SessionManager) CheckChannelOperationProgress(ctx context.Context, nodeID int64, info *datapb.ChannelWatchInfo) (*datapb.ChannelOperationProgressResponse, error) {
+	log := log.With(
+		zap.Int64("nodeID", nodeID),
+		zap.String("channel", info.GetVchan().GetChannelName()),
+		zap.String("operation", info.GetState().String()),
+	)
+	cli, err := c.getClient(ctx, nodeID)
+	if err != nil {
+		log.Info("failed to get dataNode client", zap.Error(err))
+		return nil, err
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, Params.DataCoordCfg.ChannelOperationRPCTimeout.GetAsDuration(time.Second))
+	defer cancel()
+	resp, err := cli.CheckChannelOperationProgress(ctx, info)
+	if err := merr.CheckRPCCall(resp, err); err != nil {
+		log.Warn("Check channel operation failed", zap.Error(err))
+		return nil, err
+	}
+
+	return resp, nil
 }
 
 func (c *SessionManager) getClient(ctx context.Context, nodeID int64) (types.DataNodeClient, error) {

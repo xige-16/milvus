@@ -45,8 +45,10 @@ func InitMaxprocs(serverType string, flags *flag.FlagSet) {
 
 // GetCPUNum returns the count of cpu core.
 func GetCPUNum() int {
+	//nolint
 	cur := runtime.GOMAXPROCS(0)
 	if cur <= 0 {
+		//nolint
 		cur = runtime.NumCPU()
 	}
 	return cur
@@ -102,35 +104,6 @@ func GetMemoryCount() uint64 {
 		return limit
 	}
 	return stats.Total
-}
-
-// GetUsedMemoryCount returns the memory usage in bytes.
-func GetUsedMemoryCount() uint64 {
-	icOnce.Do(func() {
-		ic, icErr = inContainer()
-	})
-	if icErr != nil {
-		log.Error(icErr.Error())
-		return 0
-	}
-	if ic {
-		// in container, calculate by `cgroups`
-		used, err := getContainerMemUsed()
-		if err != nil {
-			log.Warn("failed to get container memory used", zap.Error(err))
-			return 0
-		}
-		return used
-	}
-	// not in container, calculate by `gopsutil`
-	stats, err := mem.VirtualMemory()
-	if err != nil {
-		log.Warn("failed to get memory usage count",
-			zap.Error(err))
-		return 0
-	}
-
-	return stats.Used
 }
 
 // GetFreeMemoryCount returns the free memory in bytes.

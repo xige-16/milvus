@@ -28,6 +28,7 @@ import (
 
 	semver "github.com/blang/semver/v4"
 	"github.com/cockroachdb/errors"
+	"github.com/samber/lo"
 	"github.com/tikv/client-go/v2/txnkv"
 	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
@@ -130,7 +131,7 @@ type Server struct {
 	notifyIndexChan chan UniqueID
 	factory         dependency.Factory
 
-	session   *sessionutil.Session
+	session   sessionutil.SessionInterface
 	icSession *sessionutil.Session
 	dnEventCh <-chan *sessionutil.SessionEvent
 	inEventCh <-chan *sessionutil.SessionEvent
@@ -148,7 +149,7 @@ type Server struct {
 	// segReferManager  *SegmentReferenceManager
 	indexBuilder              *indexBuilder
 	indexNodeManager          *IndexNodeManager
-	indexEngineVersionManager *IndexEngineVersionManager
+	indexEngineVersionManager IndexEngineVersionManager
 
 	// manage ways that data coord access other coord
 	broker Broker
@@ -265,13 +266,13 @@ func (s *Server) Register() error {
 	log.Info("DataCoord Register Finished")
 
 	s.session.LivenessCheck(s.serverLoopCtx, func() {
-		logutil.Logger(s.ctx).Error("disconnected from etcd and exited", zap.Int64("serverID", s.session.ServerID))
+		logutil.Logger(s.ctx).Error("disconnected from etcd and exited", zap.Int64("serverID", s.session.GetServerID()))
 		if err := s.Stop(); err != nil {
 			logutil.Logger(s.ctx).Fatal("failed to stop server", zap.Error(err))
 		}
 		metrics.NumNodes.WithLabelValues(fmt.Sprint(paramtable.GetNodeID()), typeutil.DataCoordRole).Dec()
 		// manually send signal to starter goroutine
-		if s.session.TriggerKill {
+		if s.session.IsTriggerKill() {
 			if p, err := os.FindProcess(os.Getpid()); err == nil {
 				p.Signal(syscall.SIGINT)
 			}
@@ -394,8 +395,13 @@ func (s *Server) startDataCoord() {
 		s.compactionTrigger.start()
 	}
 	s.startServerLoop()
+	s.afterStart()
 	s.stateCode.Store(commonpb.StateCode_Healthy)
-	sessionutil.SaveServerInfo(typeutil.DataCoordRole, s.session.ServerID)
+	sessionutil.SaveServerInfo(typeutil.DataCoordRole, s.session.GetServerID())
+}
+
+func (s *Server) afterStart() {
+	s.updateBalanceConfigLoop(s.ctx)
 }
 
 func (s *Server) initCluster() error {
@@ -440,7 +446,7 @@ func (s *Server) SetIndexNodeCreator(f func(context.Context, string, int64) (typ
 }
 
 func (s *Server) createCompactionHandler() {
-	s.compactionHandler = newCompactionPlanHandler(s.sessionManager, s.channelManager, s.meta, s.allocator, s.flushCh)
+	s.compactionHandler = newCompactionPlanHandler(s.sessionManager, s.channelManager, s.meta, s.allocator)
 }
 
 func (s *Server) stopCompactionHandler() {
@@ -448,7 +454,7 @@ func (s *Server) stopCompactionHandler() {
 }
 
 func (s *Server) createCompactionTrigger() {
-	s.compactionTrigger = newCompactionTrigger(s.meta, s.compactionHandler, s.allocator, s.handler)
+	s.compactionTrigger = newCompactionTrigger(s.meta, s.compactionHandler, s.allocator, s.handler, s.indexEngineVersionManager)
 }
 
 func (s *Server) stopCompactionTrigger() {
@@ -550,10 +556,13 @@ func (s *Server) initMeta(chunkManager storage.ChunkManager) error {
 	s.watchClient = etcdkv.NewEtcdKV(s.etcdCli, Params.EtcdCfg.MetaRootPath.GetValue())
 	metaType := Params.MetaStoreCfg.MetaStoreType.GetValue()
 	log.Info("data coordinator connecting to metadata store", zap.String("metaType", metaType))
+	metaRootPath := ""
 	if metaType == util.MetaStoreTypeTiKV {
-		s.kv = tikv.NewTiKV(s.tikvCli, Params.TiKVCfg.MetaRootPath.GetValue())
+		metaRootPath = Params.TiKVCfg.MetaRootPath.GetValue()
+		s.kv = tikv.NewTiKV(s.tikvCli, metaRootPath)
 	} else if metaType == util.MetaStoreTypeEtcd {
-		s.kv = etcdkv.NewEtcdKV(s.etcdCli, Params.EtcdCfg.MetaRootPath.GetValue())
+		metaRootPath = Params.EtcdCfg.MetaRootPath.GetValue()
+		s.kv = etcdkv.NewEtcdKV(s.etcdCli, metaRootPath)
 	} else {
 		return retry.Unrecoverable(fmt.Errorf("not supported meta store: %s", metaType))
 	}
@@ -561,7 +570,7 @@ func (s *Server) initMeta(chunkManager storage.ChunkManager) error {
 
 	reloadEtcdFn := func() error {
 		var err error
-		catalog := datacoord.NewCatalog(s.kv, chunkManager.RootPath(), Params.EtcdCfg.MetaRootPath.GetValue())
+		catalog := datacoord.NewCatalog(s.kv, chunkManager.RootPath(), metaRootPath)
 		s.meta, err = newMeta(s.ctx, catalog, chunkManager)
 		if err != nil {
 			return err
@@ -782,7 +791,7 @@ func (s *Server) stopServiceWatch() {
 	// ErrCompacted is handled inside SessionWatcher, which means there is some other error occurred, closing server.
 	logutil.Logger(s.ctx).Error("watch service channel closed", zap.Int64("serverID", paramtable.GetNodeID()))
 	go s.Stop()
-	if s.session.TriggerKill {
+	if s.session.IsTriggerKill() {
 		if p, err := os.FindProcess(os.Getpid()); err == nil {
 			p.Signal(syscall.SIGINT)
 		}
@@ -1105,4 +1114,50 @@ func (s *Server) loadCollectionFromRootCoord(ctx context.Context, collectionID i
 	}
 	s.meta.AddCollection(collInfo)
 	return nil
+}
+
+func (s *Server) updateBalanceConfigLoop(ctx context.Context) {
+	success := s.updateBalanceConfig()
+	if success {
+		return
+	}
+
+	s.serverLoopWg.Add(1)
+	go func() {
+		defer s.serverLoopWg.Done()
+		ticker := time.NewTicker(Params.DataCoordCfg.CheckAutoBalanceConfigInterval.GetAsDuration(time.Second))
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				log.Info("update balance config loop exit!")
+				return
+
+			case <-ticker.C:
+				success := s.updateBalanceConfig()
+				if success {
+					return
+				}
+			}
+		}
+	}()
+}
+
+func (s *Server) updateBalanceConfig() bool {
+	r := semver.MustParseRange("<2.3.0")
+	sessions, _, err := s.session.GetSessionsWithVersionRange(typeutil.DataNodeRole, r)
+	if err != nil {
+		log.Warn("check data node version occur error on etcd", zap.Error(err))
+		return false
+	}
+
+	if len(sessions) == 0 {
+		// only balance channel when all data node's version > 2.3.0
+		Params.Save(Params.DataCoordCfg.AutoBalance.Key, "true")
+		log.Info("all old data node down, enable auto balance!")
+		return true
+	}
+
+	log.RatedDebug(10, "old data node exist", zap.Strings("sessions", lo.Keys(sessions)))
+	return false
 }

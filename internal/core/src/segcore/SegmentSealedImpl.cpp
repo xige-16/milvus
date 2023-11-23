@@ -27,11 +27,13 @@
 #include "common/Json.h"
 #include "common/EasyAssert.h"
 #include "common/Array.h"
+#include "google/protobuf/message_lite.h"
 #include "mmap/Column.h"
 #include "common/Consts.h"
 #include "common/FieldMeta.h"
 #include "common/Types.h"
 #include "log/Log.h"
+#include "pb/schema.pb.h"
 #include "query/ScalarIndex.h"
 #include "query/SearchBruteForce.h"
 #include "query/SearchOnSealed.h"
@@ -41,6 +43,7 @@
 #include "storage/ChunkCacheSingleton.h"
 #include "common/File.h"
 #include "common/Tracer.h"
+#include "index/VectorMemIndex.h"
 
 namespace milvus::segcore {
 
@@ -98,16 +101,19 @@ SegmentSealedImpl::LoadVecIndex(const LoadIndexInfo& info) {
                        std::to_string(num_rows_.value()) + ")");
     }
     AssertInfo(!vector_indexings_.is_ready(field_id), "vec index is not ready");
+    if (get_bit(field_data_ready_bitset_, field_id)) {
+        fields_.erase(field_id);
+        set_bit(field_data_ready_bitset_, field_id, false);
+    } else if (get_bit(binlog_index_bitset_, field_id)) {
+        set_bit(binlog_index_bitset_, field_id, false);
+        vector_indexings_.drop_field_indexing(field_id);
+    }
+    update_row_count(row_count);
     vector_indexings_.append_field_indexing(
         field_id,
         metric_type,
         std::move(const_cast<LoadIndexInfo&>(info).index));
-
     set_bit(index_ready_bitset_, field_id, true);
-    update_row_count(row_count);
-    // release field column
-    fields_.erase(field_id);
-    set_bit(field_data_ready_bitset_, field_id, false);
 }
 
 void
@@ -190,6 +196,8 @@ SegmentSealedImpl::LoadFieldData(const LoadFieldDataInfo& load_info) {
         auto field_data_info =
             FieldDataInfo(field_id.get(), num_rows, load_info.mmap_dir_path);
 
+        LOG_SEGCORE_INFO_ << "start to load field data " << id << " of segment "
+                          << this->id_;
         auto parallel_degree = static_cast<uint64_t>(
             DEFAULT_FIELD_MAX_MEMORY_LIMIT / FILE_SLICE_SIZE);
         field_data_info.channel->set_capacity(parallel_degree * 2);
@@ -201,7 +209,7 @@ SegmentSealedImpl::LoadFieldData(const LoadFieldDataInfo& load_info) {
                              "to thread pool, "
                           << "segmentID:" << this->id_
                           << ", fieldID:" << info.field_id;
-        if (load_info.mmap_dir_path.empty() ||
+        if (!info.enable_mmap ||
             SystemProperty::Instance().IsSystem(field_id)) {
             LoadFieldData(field_id, field_data_info);
         } else {
@@ -289,6 +297,7 @@ SegmentSealedImpl::LoadFieldData(FieldId field_id, FieldDataInfo& data) {
                         }
                     }
                     var_column->Seal();
+                    LoadStringSkipIndex(field_id, 0, *var_column);
                     column = std::move(var_column);
                     break;
                 }
@@ -344,6 +353,8 @@ SegmentSealedImpl::LoadFieldData(FieldId field_id, FieldDataInfo& data) {
             while (data.channel->pop(field_data)) {
                 column->AppendBatch(field_data);
             }
+            LoadPrimitiveSkipIndex(
+                field_id, 0, data_type, column->Span().data(), num_rows);
         }
 
         AssertInfo(column->NumRows() == num_rows,
@@ -366,11 +377,29 @@ SegmentSealedImpl::LoadFieldData(FieldId field_id, FieldDataInfo& data) {
             insert_record_.seal_pks();
         }
 
-        std::unique_lock lck(mutex_);
-        set_bit(field_data_ready_bitset_, field_id, true);
+        bool use_temp_index = false;
+        {
+            // update num_rows to build temperate binlog index
+            std::unique_lock lck(mutex_);
+            update_row_count(num_rows);
+        }
+
+        if (generate_binlog_index(field_id)) {
+            std::unique_lock lck(mutex_);
+            fields_.erase(field_id);
+            set_bit(field_data_ready_bitset_, field_id, false);
+            use_temp_index = true;
+        }
+
+        if (!use_temp_index) {
+            std::unique_lock lck(mutex_);
+            set_bit(field_data_ready_bitset_, field_id, true);
+        }
     }
-    std::unique_lock lck(mutex_);
-    update_row_count(num_rows);
+    {
+        std::unique_lock lck(mutex_);
+        update_row_count(num_rows);
+    }
 }
 
 void
@@ -609,7 +638,26 @@ SegmentSealedImpl::vector_search(SearchInfo& search_info,
 
     AssertInfo(field_meta.is_vector(),
                "The meta type of vector field is not vector type");
-    if (get_bit(index_ready_bitset_, field_id)) {
+    if (get_bit(binlog_index_bitset_, field_id)) {
+        AssertInfo(
+            vec_binlog_config_.find(field_id) != vec_binlog_config_.end(),
+            "The binlog params is not generate.");
+        auto binlog_search_info =
+            vec_binlog_config_.at(field_id)->GetSearchConf(search_info);
+
+        AssertInfo(vector_indexings_.is_ready(field_id),
+                   "vector indexes isn't ready for field " +
+                       std::to_string(field_id.get()));
+        query::SearchOnSealedIndex(*schema_,
+                                   vector_indexings_,
+                                   binlog_search_info,
+                                   query_data,
+                                   query_count,
+                                   bitset,
+                                   output);
+        milvus::tracer::AddEvent(
+            "finish_searching_vector_temperate_binlog_index");
+    } else if (get_bit(index_ready_bitset_, field_id)) {
         AssertInfo(vector_indexings_.is_ready(field_id),
                    "vector indexes isn't ready for field " +
                        std::to_string(field_id.get()));
@@ -676,7 +724,8 @@ SegmentSealedImpl::get_vector(FieldId field_id,
     auto& field_meta = schema_->operator[](field_id);
     AssertInfo(field_meta.is_vector(), "vector field is not vector type");
 
-    if (!get_bit(index_ready_bitset_, field_id)) {
+    if (!get_bit(index_ready_bitset_, field_id) &&
+        !get_bit(binlog_index_bitset_, field_id)) {
         return fill_with_empty(field_id, count);
     }
 
@@ -771,8 +820,14 @@ SegmentSealedImpl::DropFieldData(const FieldId field_id) {
     } else {
         auto& field_meta = schema_->operator[](field_id);
         std::unique_lock lck(mutex_);
-        set_bit(field_data_ready_bitset_, field_id, false);
-        insert_record_.drop_field_data(field_id);
+        if (get_bit(field_data_ready_bitset_, field_id)) {
+            set_bit(field_data_ready_bitset_, field_id, false);
+            insert_record_.drop_field_data(field_id);
+        }
+        if (get_bit(binlog_index_bitset_, field_id)) {
+            set_bit(binlog_index_bitset_, field_id, false);
+            vector_indexings_.drop_field_indexing(field_id);
+        }
         lck.unlock();
     }
 }
@@ -807,7 +862,8 @@ SegmentSealedImpl::check_search(const query::Plan* plan) const {
     }
 
     auto& request_fields = plan->extra_info_opt_.value().involved_fields_;
-    auto field_ready_bitset = field_data_ready_bitset_ | index_ready_bitset_;
+    auto field_ready_bitset =
+        field_data_ready_bitset_ | index_ready_bitset_ | binlog_index_bitset_;
     AssertInfo(request_fields.size() == field_ready_bitset.size(),
                "Request fields size not equal to field ready bitset size when "
                "check search");
@@ -823,13 +879,19 @@ SegmentSealedImpl::check_search(const query::Plan* plan) const {
     }
 }
 
-SegmentSealedImpl::SegmentSealedImpl(SchemaPtr schema, int64_t segment_id)
-    : field_data_ready_bitset_(schema->size()),
+SegmentSealedImpl::SegmentSealedImpl(SchemaPtr schema,
+                                     IndexMetaPtr index_meta,
+                                     const SegcoreConfig& segcore_config,
+                                     int64_t segment_id)
+    : segcore_config_(segcore_config),
+      field_data_ready_bitset_(schema->size()),
       index_ready_bitset_(schema->size()),
+      binlog_index_bitset_(schema->size()),
       scalar_indexings_(schema->size()),
       insert_record_(*schema, MAX_ROW_COUNT),
       schema_(schema),
-      id_(segment_id) {
+      id_(segment_id),
+      col_index_meta_(index_meta) {
 }
 
 SegmentSealedImpl::~SegmentSealedImpl() {
@@ -861,7 +923,7 @@ SegmentSealedImpl::bulk_subscript(SystemFieldType system_type,
                 this->insert_record_.timestamps_.get_chunk_data(0),
                 seg_offsets,
                 count,
-                output);
+                static_cast<Timestamp*>(output));
             break;
         case SystemFieldType::RowId:
             AssertInfo(insert_record_.row_ids_.num_chunk() == 1,
@@ -870,7 +932,7 @@ SegmentSealedImpl::bulk_subscript(SystemFieldType system_type,
                 this->insert_record_.row_ids_.get_chunk_data(0),
                 seg_offsets,
                 count,
-                output);
+                static_cast<int64_t*>(output));
             break;
         default:
             PanicInfo(DataTypeInvalid,
@@ -878,16 +940,14 @@ SegmentSealedImpl::bulk_subscript(SystemFieldType system_type,
     }
 }
 
-template <typename T>
+template <typename S, typename T>
 void
 SegmentSealedImpl::bulk_subscript_impl(const void* src_raw,
                                        const int64_t* seg_offsets,
                                        int64_t count,
-                                       void* dst_raw) {
+                                       T* dst) {
     static_assert(IsScalar<T>);
-    auto src = reinterpret_cast<const T*>(src_raw);
-    auto dst = reinterpret_cast<T*>(dst_raw);
-
+    auto src = static_cast<const S*>(src_raw);
     for (int64_t i = 0; i < count; ++i) {
         auto offset = seg_offsets[i];
         dst[i] = src[offset];
@@ -908,18 +968,31 @@ SegmentSealedImpl::bulk_subscript_impl(const ColumnBase* column,
     }
 }
 
+template <typename S, typename T>
 void
-SegmentSealedImpl::bulk_subscript_impl(const ColumnBase* column,
-                                       const int64_t* seg_offsets,
-                                       int64_t count,
-                                       void* dst_raw) {
-    auto field = reinterpret_cast<const ArrayColumn*>(column);
-    auto dst = reinterpret_cast<ScalarArray*>(dst_raw);
+SegmentSealedImpl::bulk_subscript_ptr_impl(
+    const ColumnBase* column,
+    const int64_t* seg_offsets,
+    int64_t count,
+    google::protobuf::RepeatedPtrField<T>* dst) {
+    auto field = reinterpret_cast<const VariableColumn<S>*>(column);
     for (int64_t i = 0; i < count; ++i) {
         auto offset = seg_offsets[i];
-        if (offset != INVALID_SEG_OFFSET) {
-            dst[i] = std::move(field->RawAt(offset));
-        }
+        dst->at(i) = std::move(T(field->RawAt(offset)));
+    }
+}
+
+template <typename T>
+void
+SegmentSealedImpl::bulk_subscript_array_impl(
+    const ColumnBase* column,
+    const int64_t* seg_offsets,
+    int64_t count,
+    google::protobuf::RepeatedPtrField<T>* dst) {
+    auto field = reinterpret_cast<const ArrayColumn*>(column);
+    for (int64_t i = 0; i < count; ++i) {
+        auto offset = seg_offsets[i];
+        dst->at(i) = std::move(field->RawAt(offset));
     }
 }
 
@@ -930,11 +1003,11 @@ SegmentSealedImpl::bulk_subscript_impl(int64_t element_sizeof,
                                        const int64_t* seg_offsets,
                                        int64_t count,
                                        void* dst_raw) {
-    auto src_vec = reinterpret_cast<const char*>(src_raw);
+    auto column = reinterpret_cast<const char*>(src_raw);
     auto dst_vec = reinterpret_cast<char*>(dst_raw);
     for (int64_t i = 0; i < count; ++i) {
         auto offset = seg_offsets[i];
-        auto src = src_vec + element_sizeof * offset;
+        auto src = column + element_sizeof * offset;
         auto dst = dst_vec + i * element_sizeof;
         memcpy(dst, src, element_sizeof);
     }
@@ -977,97 +1050,135 @@ SegmentSealedImpl::bulk_subscript(FieldId field_id,
     // we have to clone the shared pointer,
     // to make sure it won't get released if segment released
     auto column = fields_.at(field_id);
-
-    if (datatype_is_variable(field_meta.get_data_type())) {
-        switch (field_meta.get_data_type()) {
-            case DataType::VARCHAR:
-            case DataType::STRING: {
-                FixedVector<std::string> output(count);
-                bulk_subscript_impl<std::string>(
-                    column.get(), seg_offsets, count, output.data());
-                return CreateScalarDataArrayFrom(
-                    output.data(), count, field_meta);
-            }
-
-            case DataType::JSON: {
-                FixedVector<std::string> output(count);
-                bulk_subscript_impl<Json, std::string>(
-                    column.get(), seg_offsets, count, output.data());
-                return CreateScalarDataArrayFrom(
-                    output.data(), count, field_meta);
-            }
-
-            case DataType::ARRAY: {
-                FixedVector<ScalarArray> output(count);
-                bulk_subscript_impl(
-                    column.get(), seg_offsets, count, output.data());
-                return CreateScalarDataArrayFrom(
-                    output.data(), count, field_meta);
-            }
-
-            default:
-                PanicInfo(
-                    DataTypeInvalid,
-                    fmt::format("unsupported data type: {}",
-                                datatype_name(field_meta.get_data_type())));
-        }
-    }
-
-    auto src_vec = column->Data();
+    auto ret = fill_with_empty(field_id, count);
     switch (field_meta.get_data_type()) {
+        case DataType::VARCHAR:
+        case DataType::STRING: {
+            bulk_subscript_ptr_impl<std::string>(
+                column.get(),
+                seg_offsets,
+                count,
+                ret->mutable_scalars()->mutable_string_data()->mutable_data());
+            break;
+        }
+
+        case DataType::JSON: {
+            bulk_subscript_ptr_impl<Json, std::string>(
+                column.get(),
+                seg_offsets,
+                count,
+                ret->mutable_scalars()->mutable_json_data()->mutable_data());
+            break;
+        }
+
+        case DataType::ARRAY: {
+            bulk_subscript_array_impl(
+                column.get(),
+                seg_offsets,
+                count,
+                ret->mutable_scalars()->mutable_array_data()->mutable_data());
+            break;
+        }
+
         case DataType::BOOL: {
-            FixedVector<bool> output(count);
-            bulk_subscript_impl<bool>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<bool>(column->Data(),
+                                      seg_offsets,
+                                      count,
+                                      ret->mutable_scalars()
+                                          ->mutable_bool_data()
+                                          ->mutable_data()
+                                          ->mutable_data());
+            break;
         }
         case DataType::INT8: {
-            FixedVector<int8_t> output(count);
-            bulk_subscript_impl<int8_t>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int8_t>(column->Data(),
+                                        seg_offsets,
+                                        count,
+                                        ret->mutable_scalars()
+                                            ->mutable_int_data()
+                                            ->mutable_data()
+                                            ->mutable_data());
+            break;
         }
         case DataType::INT16: {
-            FixedVector<int16_t> output(count);
-            bulk_subscript_impl<int16_t>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int16_t>(column->Data(),
+                                         seg_offsets,
+                                         count,
+                                         ret->mutable_scalars()
+                                             ->mutable_int_data()
+                                             ->mutable_data()
+                                             ->mutable_data());
+            break;
         }
         case DataType::INT32: {
-            FixedVector<int32_t> output(count);
-            bulk_subscript_impl<int32_t>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int32_t>(column->Data(),
+                                         seg_offsets,
+                                         count,
+                                         ret->mutable_scalars()
+                                             ->mutable_int_data()
+                                             ->mutable_data()
+                                             ->mutable_data());
+            break;
         }
         case DataType::INT64: {
-            FixedVector<int64_t> output(count);
-            bulk_subscript_impl<int64_t>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<int64_t>(column->Data(),
+                                         seg_offsets,
+                                         count,
+                                         ret->mutable_scalars()
+                                             ->mutable_long_data()
+                                             ->mutable_data()
+                                             ->mutable_data());
+            break;
         }
         case DataType::FLOAT: {
-            FixedVector<float> output(count);
-            bulk_subscript_impl<float>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<float>(column->Data(),
+                                       seg_offsets,
+                                       count,
+                                       ret->mutable_scalars()
+                                           ->mutable_float_data()
+                                           ->mutable_data()
+                                           ->mutable_data());
+            break;
         }
         case DataType::DOUBLE: {
-            FixedVector<double> output(count);
-            bulk_subscript_impl<double>(
-                src_vec, seg_offsets, count, output.data());
-            return CreateScalarDataArrayFrom(output.data(), count, field_meta);
+            bulk_subscript_impl<double>(column->Data(),
+                                        seg_offsets,
+                                        count,
+                                        ret->mutable_scalars()
+                                            ->mutable_double_data()
+                                            ->mutable_data()
+                                            ->mutable_data());
+            break;
         }
 
-        case DataType::VECTOR_FLOAT:
-        case DataType::VECTOR_FLOAT16:
-        case DataType::VECTOR_BINARY: {
-            aligned_vector<char> output(field_meta.get_sizeof() * count);
+        case DataType::VECTOR_FLOAT: {
             bulk_subscript_impl(field_meta.get_sizeof(),
-                                src_vec,
+                                column->Data(),
                                 seg_offsets,
                                 count,
-                                output.data());
-            return CreateVectorDataArrayFrom(output.data(), count, field_meta);
+                                ret->mutable_vectors()
+                                    ->mutable_float_vector()
+                                    ->mutable_data()
+                                    ->mutable_data());
+            break;
+        }
+        case DataType::VECTOR_FLOAT16: {
+            bulk_subscript_impl(
+                field_meta.get_sizeof(),
+                column->Data(),
+                seg_offsets,
+                count,
+                ret->mutable_vectors()->mutable_float16_vector()->data());
+            break;
+        }
+        case DataType::VECTOR_BINARY: {
+            bulk_subscript_impl(
+                field_meta.get_sizeof(),
+                column->Data(),
+                seg_offsets,
+                count,
+                ret->mutable_vectors()->mutable_binary_vector()->data());
+            break;
         }
 
         default: {
@@ -1076,12 +1187,15 @@ SegmentSealedImpl::bulk_subscript(FieldId field_id,
                                   field_meta.get_data_type()));
         }
     }
+
+    return ret;
 }
 
 bool
 SegmentSealedImpl::HasIndex(FieldId field_id) const {
     std::shared_lock lck(mutex_);
-    return get_bit(index_ready_bitset_, field_id);
+    return get_bit(index_ready_bitset_, field_id) |
+           get_bit(binlog_index_bitset_, field_id);
 }
 
 bool
@@ -1100,7 +1214,8 @@ SegmentSealedImpl::HasRawData(int64_t field_id) const {
     auto fieldID = FieldId(field_id);
     const auto& field_meta = schema_->operator[](fieldID);
     if (datatype_is_vector(field_meta.get_data_type())) {
-        if (get_bit(index_ready_bitset_, fieldID)) {
+        if (get_bit(index_ready_bitset_, fieldID) |
+            get_bit(binlog_index_bitset_, fieldID)) {
             AssertInfo(vector_indexings_.is_ready(fieldID),
                        "vector index is not ready");
             auto field_indexing = vector_indexings_.get_field_indexing(fieldID);
@@ -1247,6 +1362,64 @@ SegmentSealedImpl::mask_with_timestamps(BitsetType& bitset_chunk,
     auto mask = TimestampIndex::GenerateBitset(
         timestamp, range, timestamps_data.data(), timestamps_data.size());
     bitset_chunk |= mask;
+}
+
+bool
+SegmentSealedImpl::generate_binlog_index(const FieldId field_id) {
+    if (col_index_meta_ == nullptr)
+        return false;
+    auto& field_meta = schema_->operator[](field_id);
+
+    if (field_meta.is_vector() &&
+        field_meta.get_data_type() == DataType::VECTOR_FLOAT &&
+        segcore_config_.get_enable_interim_segment_index()) {
+        try {
+            auto& field_index_meta =
+                col_index_meta_->GetFieldIndexMeta(field_id);
+            auto& index_params = field_index_meta.GetIndexParams();
+            if (index_params.find(knowhere::meta::INDEX_TYPE) ==
+                    index_params.end() ||
+                index_params.at(knowhere::meta::INDEX_TYPE) ==
+                    knowhere::IndexEnum::INDEX_FAISS_IDMAP) {
+                return false;
+            }
+            // get binlog data and meta
+            auto row_count = num_rows_.value();
+            auto dim = field_meta.get_dim();
+            auto vec_data = fields_.at(field_id);
+            auto dataset =
+                knowhere::GenDataSet(row_count, dim, (void*)vec_data->Data());
+            dataset->SetIsOwner(false);
+            // generate index params
+            auto field_binlog_config = std::unique_ptr<VecIndexConfig>(
+                new VecIndexConfig(row_count,
+                                   field_index_meta,
+                                   segcore_config_,
+                                   SegmentType::Sealed));
+            auto build_config = field_binlog_config->GetBuildBaseParams();
+            build_config[knowhere::meta::DIM] = std::to_string(dim);
+            build_config[knowhere::meta::NUM_BUILD_THREAD] = std::to_string(1);
+            auto index_metric = field_binlog_config->GetMetricType();
+
+            index::IndexBasePtr vec_index =
+                std::make_unique<index::VectorMemIndex<float>>(
+                    field_binlog_config->GetIndexType(),
+                    index_metric,
+                    knowhere::Version::GetCurrentVersion().VersionNumber());
+            vec_index->BuildWithDataset(dataset, build_config);
+            vector_indexings_.append_field_indexing(
+                field_id, index_metric, std::move(vec_index));
+
+            vec_binlog_config_[field_id] = std::move(field_binlog_config);
+            set_bit(binlog_index_bitset_, field_id, true);
+
+            return true;
+        } catch (std::exception& e) {
+            return false;
+        }
+    } else {
+        return false;
+    }
 }
 
 }  // namespace milvus::segcore

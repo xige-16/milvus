@@ -14,8 +14,9 @@ import (
 func NewSyncTask() *SyncTask {
 	return &SyncTask{
 		isFlush:       false,
-		insertBinlogs: make(map[int64]*datapb.Binlog),
-		statsBinlogs:  make(map[int64]*datapb.Binlog),
+		insertBinlogs: make(map[int64]*datapb.FieldBinlog),
+		statsBinlogs:  make(map[int64]*datapb.FieldBinlog),
+		deltaBinlog:   &datapb.FieldBinlog{},
 		segmentData:   make(map[string][]byte),
 	}
 }
@@ -37,6 +38,11 @@ func (t *SyncTask) WithInsertData(insertData *storage.InsertData) *SyncTask {
 
 func (t *SyncTask) WithDeleteData(deleteData *storage.DeleteData) *SyncTask {
 	t.deleteData = deleteData
+	return t
+}
+
+func (t *SyncTask) WithStartPosition(start *msgpb.MsgPosition) *SyncTask {
+	t.startPosition = start
 	return t
 }
 
@@ -80,6 +86,11 @@ func (t *SyncTask) WithFlush() *SyncTask {
 	return t
 }
 
+func (t *SyncTask) WithDrop() *SyncTask {
+	t.isDrop = true
+	return t
+}
+
 func (t *SyncTask) WithMetaCache(metacache metacache.MetaCache) *SyncTask {
 	t.metacache = metacache
 	return t
@@ -97,5 +108,15 @@ func (t *SyncTask) WithWriteRetryOptions(opts ...retry.Option) *SyncTask {
 
 func (t *SyncTask) WithFailureCallback(callback func(error)) *SyncTask {
 	t.failureCallback = callback
+	return t
+}
+
+func (t *SyncTask) WithBatchSize(batchSize int64) *SyncTask {
+	t.batchSize = batchSize
+	return t
+}
+
+func (t *SyncTask) WithLevel(level datapb.SegmentLevel) *SyncTask {
+	t.level = level
 	return t
 }

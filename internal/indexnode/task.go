@@ -20,7 +20,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"runtime"
 	"runtime/debug"
 	"strconv"
 	"strings"
@@ -38,6 +37,7 @@ import (
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/funcutil"
+	"github.com/milvus-io/milvus/pkg/util/hardware"
 	"github.com/milvus-io/milvus/pkg/util/indexparamcheck"
 	"github.com/milvus-io/milvus/pkg/util/indexparams"
 	"github.com/milvus-io/milvus/pkg/util/merr"
@@ -221,10 +221,10 @@ func (it *indexBuildTask) LoadData(ctx context.Context) error {
 		blobs[idx] = blob
 		return nil
 	}
-	// Use runtime.GOMAXPROCS(0) instead of runtime.NumCPU()
+	// Use hardware.GetCPUNum() instead of hardware.GetCPUNum()
 	// to respect CPU quota of container/pod
 	// gomaxproc will be set by `automaxproc`, passing 0 will just retrieve the value
-	err := funcutil.ProcessFuncParallel(len(toLoadDataPaths), runtime.GOMAXPROCS(0), loadKey, "loadKey")
+	err := funcutil.ProcessFuncParallel(len(toLoadDataPaths), hardware.GetCPUNum(), loadKey, "loadKey")
 	if err != nil {
 		log.Ctx(ctx).Warn("loadKey failed", zap.Error(err))
 		return err
@@ -360,7 +360,7 @@ func (it *indexBuildTask) BuildIndex(ctx context.Context) error {
 	buildIndexLatency := it.tr.RecordSpan()
 	metrics.IndexNodeKnowhereBuildIndexLatency.WithLabelValues(strconv.FormatInt(paramtable.GetNodeID(), 10)).Observe(buildIndexLatency.Seconds())
 
-	log.Ctx(ctx).Info("Successfully build index", zap.Int64("buildID", it.BuildID), zap.Int64("Collection", it.collectionID), zap.Int64("SegmentID", it.segmentID))
+	log.Ctx(ctx).Info("Successfully build index", zap.Int64("buildID", it.BuildID), zap.Int64("Collection", it.collectionID), zap.Int64("SegmentID", it.segmentID), zap.Int32("currentIndexVersion", it.currentIndexVersion))
 	return nil
 }
 

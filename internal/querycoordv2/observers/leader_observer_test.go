@@ -27,6 +27,7 @@ import (
 	"go.uber.org/atomic"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
+	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
 	"github.com/milvus-io/milvus/internal/kv"
 	etcdkv "github.com/milvus-io/milvus/internal/kv/etcd"
 	"github.com/milvus-io/milvus/internal/metastore/kv/querycoord"
@@ -71,7 +72,8 @@ func (suite *LeaderObserverTestSuite) SetupTest() {
 	// meta
 	store := querycoord.NewCatalog(suite.kv)
 	idAllocator := RandomIncrementIDAllocator()
-	suite.meta = meta.NewMeta(idAllocator, store, session.NewNodeManager())
+	nodeMgr := session.NewNodeManager()
+	suite.meta = meta.NewMeta(idAllocator, store, nodeMgr)
 	suite.broker = meta.NewMockBroker(suite.T())
 
 	suite.mockCluster = session.NewMockCluster(suite.T())
@@ -80,7 +82,7 @@ func (suite *LeaderObserverTestSuite) SetupTest() {
 	// }, nil).Maybe()
 	distManager := meta.NewDistributionManager()
 	targetManager := meta.NewTargetManager(suite.broker, suite.meta)
-	suite.observer = NewLeaderObserver(distManager, suite.meta, targetManager, suite.broker, suite.mockCluster)
+	suite.observer = NewLeaderObserver(distManager, suite.meta, targetManager, suite.broker, suite.mockCluster, nodeMgr)
 }
 
 func (suite *LeaderObserverTestSuite) TearDownTest() {
@@ -116,7 +118,7 @@ func (suite *LeaderObserverTestSuite) TestSyncLoadedSegments() {
 		Infos: []*datapb.SegmentInfo{info},
 	}
 	schema := utils.CreateTestSchema()
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, int64(1)).Return(schema, nil)
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, int64(1)).Return(&milvuspb.DescribeCollectionResponse{Schema: schema}, nil)
 	suite.broker.EXPECT().GetSegmentInfo(mock.Anything, int64(1)).Return(
 		&datapb.GetSegmentInfoResponse{Infos: []*datapb.SegmentInfo{info}}, nil)
 	suite.broker.EXPECT().GetRecoveryInfoV2(mock.Anything, int64(1)).Return(
@@ -197,7 +199,7 @@ func (suite *LeaderObserverTestSuite) TestIgnoreSyncLoadedSegments() {
 		},
 	}
 	schema := utils.CreateTestSchema()
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, int64(1)).Return(schema, nil)
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, int64(1)).Return(&milvuspb.DescribeCollectionResponse{Schema: schema}, nil)
 	info := &datapb.SegmentInfo{
 		ID:            1,
 		CollectionID:  1,
@@ -342,7 +344,7 @@ func (suite *LeaderObserverTestSuite) TestSyncLoadedSegmentsWithReplicas() {
 		&datapb.GetSegmentInfoResponse{Infos: []*datapb.SegmentInfo{info}}, nil)
 	suite.broker.EXPECT().GetRecoveryInfoV2(mock.Anything, int64(1)).Return(
 		channels, segments, nil)
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, int64(1)).Return(schema, nil)
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, int64(1)).Return(&milvuspb.DescribeCollectionResponse{Schema: schema}, nil)
 	observer.target.UpdateCollectionNextTarget(int64(1))
 	observer.target.UpdateCollectionCurrentTarget(1)
 	observer.dist.SegmentDistManager.Update(1, utils.CreateTestSegment(1, 1, 1, 1, 1, "test-insert-channel"))
@@ -410,7 +412,7 @@ func (suite *LeaderObserverTestSuite) TestSyncRemovedSegments() {
 	observer.meta.ReplicaManager.Put(utils.CreateTestReplica(1, 1, []int64{1, 2}))
 
 	schema := utils.CreateTestSchema()
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, int64(1)).Return(schema, nil)
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, int64(1)).Return(&milvuspb.DescribeCollectionResponse{Schema: schema}, nil)
 
 	channels := []*datapb.VchannelInfo{
 		{
@@ -490,7 +492,7 @@ func (suite *LeaderObserverTestSuite) TestIgnoreSyncRemovedSegments() {
 		},
 	}
 	schema := utils.CreateTestSchema()
-	suite.broker.EXPECT().GetCollectionSchema(mock.Anything, int64(1)).Return(schema, nil)
+	suite.broker.EXPECT().DescribeCollection(mock.Anything, int64(1)).Return(&milvuspb.DescribeCollectionResponse{Schema: schema}, nil)
 	suite.broker.EXPECT().GetRecoveryInfoV2(mock.Anything, int64(1)).Return(
 		channels, segments, nil)
 	observer.target.UpdateCollectionNextTarget(int64(1))
@@ -537,58 +539,6 @@ func (suite *LeaderObserverTestSuite) TestIgnoreSyncRemovedSegments() {
 		10*time.Second,
 		500*time.Millisecond,
 	)
-}
-
-func (suite *LeaderObserverTestSuite) TestSyncTargetVersion() {
-	collectionID := int64(1001)
-
-	observer := suite.observer
-	observer.meta.CollectionManager.PutCollection(utils.CreateTestCollection(collectionID, 1))
-	observer.meta.CollectionManager.PutPartition(utils.CreateTestPartition(collectionID, 1))
-	observer.meta.ReplicaManager.Put(utils.CreateTestReplica(1, collectionID, []int64{1, 2}))
-
-	nextTargetChannels := []*datapb.VchannelInfo{
-		{
-			CollectionID:        collectionID,
-			ChannelName:         "channel-1",
-			UnflushedSegmentIds: []int64{22, 33},
-		},
-		{
-			CollectionID:        collectionID,
-			ChannelName:         "channel-2",
-			UnflushedSegmentIds: []int64{44},
-		},
-	}
-
-	nextTargetSegments := []*datapb.SegmentInfo{
-		{
-			ID:            11,
-			PartitionID:   1,
-			InsertChannel: "channel-1",
-		},
-		{
-			ID:            12,
-			PartitionID:   1,
-			InsertChannel: "channel-2",
-		},
-	}
-
-	suite.broker.EXPECT().GetRecoveryInfoV2(mock.Anything, collectionID).Return(nextTargetChannels, nextTargetSegments, nil)
-	suite.observer.target.UpdateCollectionNextTarget(collectionID)
-	suite.observer.target.UpdateCollectionCurrentTarget(collectionID)
-	TargetVersion := suite.observer.target.GetCollectionTargetVersion(collectionID, meta.CurrentTarget)
-
-	view := utils.CreateTestLeaderView(1, collectionID, "channel-1", nil, nil)
-	view.TargetVersion = TargetVersion
-	action := observer.checkNeedUpdateTargetVersion(context.Background(), view)
-	suite.Nil(action)
-
-	view.TargetVersion = TargetVersion - 1
-	action = observer.checkNeedUpdateTargetVersion(context.Background(), view)
-	suite.NotNil(action)
-	suite.Equal(querypb.SyncType_UpdateVersion, action.Type)
-	suite.Len(action.GrowingInTarget, 2)
-	suite.Len(action.SealedInTarget, 1)
 }
 
 func TestLeaderObserverSuite(t *testing.T) {

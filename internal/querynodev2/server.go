@@ -193,13 +193,13 @@ func (node *QueryNode) InitSegcore() error {
 	cKnowhereThreadPoolSize := C.uint32_t(paramtable.Get().QueryNodeCfg.KnowhereThreadPoolSize.GetAsUint32())
 	C.SegcoreSetKnowhereSearchThreadPoolNum(cKnowhereThreadPoolSize)
 
-	enableGrowingIndex := C.bool(paramtable.Get().QueryNodeCfg.EnableGrowingSegmentIndex.GetAsBool())
-	C.SegcoreSetEnableGrowingSegmentIndex(enableGrowingIndex)
+	enableGrowingIndex := C.bool(paramtable.Get().QueryNodeCfg.EnableTempSegmentIndex.GetAsBool())
+	C.SegcoreSetEnableTempSegmentIndex(enableGrowingIndex)
 
-	nlist := C.int64_t(paramtable.Get().QueryNodeCfg.GrowingIndexNlist.GetAsInt64())
+	nlist := C.int64_t(paramtable.Get().QueryNodeCfg.InterimIndexNlist.GetAsInt64())
 	C.SegcoreSetNlist(nlist)
 
-	nprobe := C.int64_t(paramtable.Get().QueryNodeCfg.GrowingIndexNProbe.GetAsInt64())
+	nprobe := C.int64_t(paramtable.Get().QueryNodeCfg.InterimIndexNProbe.GetAsInt64())
 	C.SegcoreSetNprobe(nprobe)
 
 	// override segcore SIMD type
@@ -453,13 +453,14 @@ func (node *QueryNode) Stop() error {
 
 		node.UpdateStateCode(commonpb.StateCode_Abnormal)
 		node.lifetime.Wait()
-		node.cancel()
 		if node.scheduler != nil {
 			node.scheduler.Stop()
 		}
 		if node.pipelineManager != nil {
 			node.pipelineManager.Close()
 		}
+		// Delay the cancellation of ctx to ensure that the session is automatically recycled after closed the pipeline
+		node.cancel()
 		if node.session != nil {
 			node.session.Stop()
 		}

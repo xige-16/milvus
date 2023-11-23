@@ -73,7 +73,7 @@ func adjustBufSize(parser *JSONParser, collectionSchema *schemapb.CollectionSche
 	// for low dimensional vector, the bufSize is a large value, read more rows each time
 	bufRowCount := parser.bufRowCount
 	for {
-		if bufRowCount*sizePerRecord > SingleBlockSize {
+		if bufRowCount*sizePerRecord > ReadBufferSize {
 			bufRowCount--
 		} else {
 			break
@@ -110,7 +110,9 @@ func (p *JSONParser) combineDynamicRow(dynamicValues map[string]interface{}, row
 			if value, is := obj.(string); is {
 				// case 1
 				mp := make(map[string]interface{})
-				err := json.Unmarshal([]byte(value), &mp)
+				desc := json.NewDecoder(strings.NewReader(value))
+				desc.UseNumber()
+				err := desc.Decode(&mp)
 				if err != nil {
 					// invalid input
 					return errors.New("illegal value for dynamic field, not a JSON format string")
@@ -192,7 +194,7 @@ func (p *JSONParser) verifyRow(raw interface{}) (map[storage.FieldID]interface{}
 		}
 	}
 
-	// combine the redundant pairs into dunamic field(if has)
+	// combine the redundant pairs into dynamic field(if has)
 	err := p.combineDynamicRow(dynamicValues, row)
 	if err != nil {
 		log.Warn("JSON parser: failed to combine dynamic values", zap.Error(err))
@@ -232,38 +234,41 @@ func (p *JSONParser) ParseRows(reader *IOReader, handler JSONRowHandler) error {
 		log.Warn("JSON parser: failed to decode the JSON file", zap.Error(err))
 		return fmt.Errorf("failed to decode the JSON file, error: %w", err)
 	}
-	if t != json.Delim('{') {
-		log.Warn("JSON parser: invalid JSON format, the content should be started with'{'")
-		return errors.New("invalid JSON format, the content should be started with'{'")
+	if t != json.Delim('{') && t != json.Delim('[') {
+		log.Warn("JSON parser: invalid JSON format, the content should be started with '{' or '['")
+		return errors.New("invalid JSON format, the content should be started with '{' or '['")
 	}
 
 	// read the first level
 	isEmpty := true
+	isOldFormat := (t == json.Delim('{'))
 	for dec.More() {
-		// read the key
-		t, err := dec.Token()
-		if err != nil {
-			log.Warn("JSON parser: failed to decode the JSON file", zap.Error(err))
-			return fmt.Errorf("failed to decode the JSON file, error: %w", err)
-		}
-		key := t.(string)
-		keyLower := strings.ToLower(key)
-		// the root key should be RowRootNode
-		if keyLower != RowRootNode {
-			log.Warn("JSON parser: invalid JSON format, the root key is not found", zap.String("RowRootNode", RowRootNode), zap.String("key", key))
-			return fmt.Errorf("invalid JSON format, the root key should be '%s', but get '%s'", RowRootNode, key)
-		}
+		if isOldFormat {
+			// read the key
+			t, err := dec.Token()
+			if err != nil {
+				log.Warn("JSON parser: failed to decode the JSON file", zap.Error(err))
+				return fmt.Errorf("failed to decode the JSON file, error: %w", err)
+			}
+			key := t.(string)
+			keyLower := strings.ToLower(key)
+			// the root key should be RowRootNode
+			if keyLower != RowRootNode {
+				log.Warn("JSON parser: invalid JSON format, the root key is not found", zap.String("RowRootNode", RowRootNode), zap.String("key", key))
+				return fmt.Errorf("invalid JSON format, the root key should be '%s', but get '%s'", RowRootNode, key)
+			}
 
-		// started by '['
-		t, err = dec.Token()
-		if err != nil {
-			log.Warn("JSON parser: failed to decode the JSON file", zap.Error(err))
-			return fmt.Errorf("failed to decode the JSON file, error: %w", err)
-		}
+			// started by '['
+			t, err = dec.Token()
+			if err != nil {
+				log.Warn("JSON parser: failed to decode the JSON file", zap.Error(err))
+				return fmt.Errorf("failed to decode the JSON file, error: %w", err)
+			}
 
-		if t != json.Delim('[') {
-			log.Warn("JSON parser: invalid JSON format, rows list should begin with '['")
-			return errors.New("invalid JSON format, rows list should begin with '['")
+			if t != json.Delim('[') {
+				log.Warn("JSON parser: invalid JSON format, rows list should begin with '['")
+				return errors.New("invalid JSON format, rows list should begin with '['")
+			}
 		}
 
 		// read buffer

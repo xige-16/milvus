@@ -91,7 +91,7 @@ minio:
   # Supported level:  off, fatal, error, warn, info, debug, trace
   logLevel: fatal
   # Cloud data center region
-  region: ""
+  region: ''
   # Cloud whether use virtual host bucket mode
   useVirtualHost: false
   # timeout for request time in milliseconds
@@ -221,7 +221,7 @@ proxy:
 # Related configuration of queryCoord, used to manage topology and load balancing for the query nodes, and handoff from growing segments to sealed segments.
 queryCoord:
   autoHandoff: true # Enable auto handoff
-  autoBalance: true # Enable auto balance
+  autoBalance: false # Enable auto balance
   balancer: ScoreBasedBalancer # Balancer to use
   globalRowCountFactor: 0.1 # expert parameters, only used by scoreBasedBalancer
   scoreUnbalanceTolerationFactor: 0.05 # expert parameters, only used by scoreBasedBalancer
@@ -265,10 +265,10 @@ queryNode:
     # This parameter is only useful when enable-disk = true.
     # And this value should be a number greater than 1 and less than 32.
     chunkRows: 1024 # The number of vectors in a chunk.
-    growing: # growing a vector index for growing segment to accelerate search
+    interimIndex: # build a vector temperate index for growing segment or binlog to accelerate search
       enableIndex: true
-      nlist: 128 # growing segment index nlist
-      nprobe: 16 # nprobe to search growing segment, based on your accuracy requirement, must smaller than nlist
+      nlist: 128 # segment index nlist
+      nprobe: 16 # nprobe to search segment, based on your accuracy requirement, must smaller than nlist
   loadMemoryUsageFactor: 1 # The multiply factor of calculating the memory usage while loading segments
   enableDisk: false # enable querynode load disk index, and search on disk index
   maxDiskUsagePercentage: 95
@@ -373,12 +373,19 @@ dataCoord:
     # MUST BE GREATER THAN OR EQUAL TO <smallProportion>!!!
     # During compaction, the size of segment # of rows is able to exceed segment max # of rows by (expansionRate-1) * 100%.
     expansionRate: 1.25
+    # Whether to enable levelzero segment
+    enableLevelZero: false
   enableCompaction: true # Enable data segment compaction
   compaction:
     enableAutoCompaction: true
     rpcTimeout: 10 # compaction rpc request timeout in seconds
     maxParallelTaskNum: 10 # max parallel compaction task number
     indexBasedCompaction: true
+
+    levelzero:
+      forceTrigger:
+        minSize: 8 # The minmum size in MB to force trigger a LevelZero Compaction
+        deltalogMinNum: 10 # the minimum number of deltalog files to force trigger a LevelZero Compaction
 
   enableGarbageCollection: true
   gc:
@@ -512,7 +519,7 @@ common:
     # superUsers: root
     tlsMode: 0
   session:
-    ttl: 60 # ttl value when session granting a lease to register service
+    ttl: 30 # ttl value when session granting a lease to register service
     retryTimes: 30 # retry times when session sending etcd requests
 
   # preCreatedTopic decides whether using existed topic
@@ -520,9 +527,9 @@ common:
     enabled: false
     # support pre-created topics
     # the name of pre-created topics
-    names: ["topic1", "topic2"]
+    names: ['topic1', 'topic2']
     # need to set a separated topic to stand for currently consumed timestamp for each channel
-    timeticker: "timetick-channel"
+    timeticker: 'timetick-channel'
 
   ImportMaxFileSize: 17179869184 # 16 * 1024 * 1024 * 1024
   # max file size to import for bulkInsert
@@ -534,6 +541,7 @@ common:
       info: 500 # minimum milliseconds for printing durations in info level
       warn: 1000 # minimum milliseconds for printing durations in warn level
   ttMsgEnabled: true # Whether the instance disable sending ts messages
+  traceLogMode: 0 # trace request info, 0: none, 1: simple request info, like collection/partition/database name, 2: request detail
 
 # QuotaConfig, configurations of Milvus quota and limits.
 # By default, we enable:

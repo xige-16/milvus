@@ -113,6 +113,10 @@ func (s *baseSegment) Type() SegmentType {
 	return s.typ
 }
 
+func (s *baseSegment) Level() datapb.SegmentLevel {
+	return datapb.SegmentLevel_Legacy
+}
+
 func (s *baseSegment) StartPosition() *msgpb.MsgPosition {
 	return s.startPosition
 }
@@ -162,11 +166,16 @@ func NewSegment(collection *Collection,
 	version int64,
 	startPosition *msgpb.MsgPosition,
 	deltaPosition *msgpb.MsgPosition,
-) (*LocalSegment, error) {
+	level datapb.SegmentLevel,
+) (Segment, error) {
 	/*
 		CSegmentInterface
 		NewSegment(CCollection collection, uint64_t segment_id, SegmentType seg_type);
 	*/
+	if level == datapb.SegmentLevel_L0 {
+		return NewL0Segment(collection, segmentID, partitionID, collectionID, shard, segmentType, version, startPosition, deltaPosition)
+	}
+
 	var segmentPtr C.CSegmentInterface
 	switch segmentType {
 	case SegmentTypeSealed:
@@ -536,6 +545,10 @@ func (s *LocalSegment) Delete(primaryKeys []storage.PrimaryKey, timestamps []typ
 		           const unsigned long* timestamps);
 	*/
 
+	if len(primaryKeys) == 0 {
+		return nil
+	}
+
 	s.ptrLock.RLock()
 	defer s.ptrLock.RUnlock()
 
@@ -639,7 +652,7 @@ func (s *LocalSegment) LoadMultiFieldData(rowCount int64, fields []*datapb.Field
 	}
 
 	var status C.CStatus
-	GetDynamicPool().Submit(func() (any, error) {
+	GetLoadPool().Submit(func() (any, error) {
 		status = C.LoadFieldData(s.ptr, loadFieldDataInfo.cLoadFieldDataInfo)
 		return nil, nil
 	}).Await()
@@ -655,7 +668,7 @@ func (s *LocalSegment) LoadMultiFieldData(rowCount int64, fields []*datapb.Field
 	return nil
 }
 
-func (s *LocalSegment) LoadFieldData(fieldID int64, rowCount int64, field *datapb.FieldBinlog) error {
+func (s *LocalSegment) LoadFieldData(fieldID int64, rowCount int64, field *datapb.FieldBinlog, mmapEnabled bool) error {
 	s.ptrLock.RLock()
 	defer s.ptrLock.RUnlock()
 
@@ -692,7 +705,7 @@ func (s *LocalSegment) LoadFieldData(fieldID int64, rowCount int64, field *datap
 	loadFieldDataInfo.appendMMapDirPath(paramtable.Get().QueryNodeCfg.MmapDirPath.GetValue())
 
 	var status C.CStatus
-	GetDynamicPool().Submit(func() (any, error) {
+	GetLoadPool().Submit(func() (any, error) {
 		log.Info("submitted loadFieldData task to dy pool")
 		status = C.LoadFieldData(s.ptr, loadFieldDataInfo.cLoadFieldDataInfo)
 		return nil, nil
@@ -744,7 +757,7 @@ func (s *LocalSegment) AddFieldDataInfo(rowCount int64, fields []*datapb.FieldBi
 	}
 
 	var status C.CStatus
-	GetDynamicPool().Submit(func() (any, error) {
+	GetLoadPool().Submit(func() (any, error) {
 		status = C.AddFieldDataInfoForSealed(s.ptr, loadFieldDataInfo.cLoadFieldDataInfo)
 		return nil, nil
 	}).Await()
@@ -834,14 +847,14 @@ func (s *LocalSegment) LoadDeltaData(deltaData *storage.DeleteData) error {
 	return nil
 }
 
-func (s *LocalSegment) LoadIndex(indexInfo *querypb.FieldIndexInfo, fieldType schemapb.DataType) error {
+func (s *LocalSegment) LoadIndex(indexInfo *querypb.FieldIndexInfo, fieldType schemapb.DataType, enableMmap bool) error {
 	loadIndexInfo, err := newLoadIndexInfo()
 	defer deleteLoadIndexInfo(loadIndexInfo)
 	if err != nil {
 		return err
 	}
 
-	err = loadIndexInfo.appendLoadIndexInfo(indexInfo, s.collectionID, s.partitionID, s.segmentID, fieldType)
+	err = loadIndexInfo.appendLoadIndexInfo(indexInfo, s.collectionID, s.partitionID, s.segmentID, fieldType, enableMmap)
 	if err != nil {
 		if loadIndexInfo.cleanLocalData() != nil {
 			log.Warn("failed to clean cached data on disk after append index failed",
@@ -873,7 +886,7 @@ func (s *LocalSegment) LoadIndexInfo(indexInfo *querypb.FieldIndexInfo, info *Lo
 	}
 
 	var status C.CStatus
-	GetDynamicPool().Submit(func() (any, error) {
+	GetLoadPool().Submit(func() (any, error) {
 		status = C.UpdateSealedSegmentIndex(s.ptr, info.cLoadIndexInfo)
 		return nil, nil
 	}).Await()

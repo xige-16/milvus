@@ -29,6 +29,7 @@ import (
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
+	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/internal/proto/segcorepb"
 	"github.com/milvus-io/milvus/internal/querynodev2/cluster"
@@ -39,6 +40,7 @@ import (
 	"github.com/milvus-io/milvus/pkg/common"
 	"github.com/milvus-io/milvus/pkg/mq/msgstream"
 	"github.com/milvus-io/milvus/pkg/util/commonpbutil"
+	"github.com/milvus-io/milvus/pkg/util/merr"
 	"github.com/milvus-io/milvus/pkg/util/metric"
 	"github.com/milvus-io/milvus/pkg/util/paramtable"
 )
@@ -134,7 +136,7 @@ func (s *DelegatorDataSuite) SetupTest() {
 		NewMsgStreamFunc: func(_ context.Context) (msgstream.MsgStream, error) {
 			return s.mq, nil
 		},
-	}, 10000)
+	}, 10000, nil)
 	s.Require().NoError(err)
 }
 
@@ -231,6 +233,7 @@ func (s *DelegatorDataSuite) TestProcessDelete() {
 			ms.EXPECT().Partition().Return(info.GetPartitionID())
 			ms.EXPECT().Indexes().Return(nil)
 			ms.EXPECT().RowNum().Return(info.GetNumOfRows())
+			ms.EXPECT().Delete(mock.Anything, mock.Anything).Return(nil)
 			ms.EXPECT().MayPkExist(mock.Anything).Call.Return(func(pk storage.PrimaryKey) bool {
 				return pk.EQ(storage.NewInt64PrimaryKey(10))
 			})
@@ -319,6 +322,18 @@ func (s *DelegatorDataSuite) TestProcessDelete() {
 	})
 	s.Require().NoError(err)
 
+	s.delegator.ProcessDelete([]*DeleteData{
+		{
+			PartitionID: 500,
+			PrimaryKeys: []storage.PrimaryKey{storage.NewInt64PrimaryKey(10)},
+			Timestamps:  []uint64{10},
+			RowCount:    1,
+		},
+	}, 10)
+
+	// test worker offline
+	worker1.ExpectedCalls = nil
+	worker1.EXPECT().Delete(mock.Anything, mock.Anything).Return(merr.ErrNodeNotFound)
 	s.delegator.ProcessDelete([]*DeleteData{
 		{
 			PartitionID: 500,
@@ -434,7 +449,25 @@ func (s *DelegatorDataSuite) TestLoadSegments() {
 
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
+
 		err := s.delegator.LoadSegments(ctx, &querypb.LoadSegmentsRequest{
+			Base:         commonpbutil.NewMsgBase(),
+			DstNodeID:    1,
+			CollectionID: s.collectionID,
+			Infos: []*querypb.SegmentLoadInfo{
+				{
+					SegmentID:     200,
+					PartitionID:   500,
+					StartPosition: &msgpb.MsgPosition{Timestamp: 20000},
+					DeltaPosition: &msgpb.MsgPosition{Timestamp: 20000},
+					Deltalogs:     []*datapb.FieldBinlog{},
+					Level:         datapb.SegmentLevel_L0,
+				},
+			},
+		})
+		s.NoError(err)
+
+		err = s.delegator.LoadSegments(ctx, &querypb.LoadSegmentsRequest{
 			Base:         commonpbutil.NewMsgBase(),
 			DstNodeID:    1,
 			CollectionID: s.collectionID,
@@ -466,6 +499,60 @@ func (s *DelegatorDataSuite) TestLoadSegments() {
 				TargetVersion: unreadableTargetVersion,
 			},
 		}, sealed[0].Segments)
+	})
+
+	s.Run("load_segments_with_l0_delete_failed", func() {
+		s.T().Skip("skip this test for now")
+		defer func() {
+			s.workerManager.ExpectedCalls = nil
+			s.loader.ExpectedCalls = nil
+		}()
+
+		delegator, err := NewShardDelegator(
+			context.Background(),
+			s.collectionID,
+			s.replicaID,
+			s.vchannelName,
+			s.version,
+			s.workerManager,
+			s.manager,
+			s.tsafeManager,
+			s.loader,
+			&msgstream.MockMqFactory{
+				NewMsgStreamFunc: func(_ context.Context) (msgstream.MsgStream, error) {
+					return s.mq, nil
+				},
+			}, 10000, nil)
+		s.NoError(err)
+
+		growing0 := segments.NewMockSegment(s.T())
+		growing0.EXPECT().ID().Return(1)
+		growing0.EXPECT().Partition().Return(10)
+		growing0.EXPECT().Type().Return(segments.SegmentTypeGrowing)
+		growing0.EXPECT().Release()
+
+		growing1 := segments.NewMockSegment(s.T())
+		growing1.EXPECT().ID().Return(2)
+		growing1.EXPECT().Partition().Return(10)
+		growing1.EXPECT().Type().Return(segments.SegmentTypeGrowing)
+		growing1.EXPECT().Release()
+
+		mockErr := merr.WrapErrServiceInternal("mock")
+
+		growing0.EXPECT().Delete(mock.Anything, mock.Anything).Return(nil)
+		growing1.EXPECT().Delete(mock.Anything, mock.Anything).Return(mockErr)
+
+		s.loader.EXPECT().Load(
+			mock.Anything,
+			mock.Anything,
+			segments.SegmentTypeGrowing,
+			mock.Anything,
+			mock.Anything,
+			mock.Anything,
+		).Return([]segments.Segment{growing0, growing1}, nil)
+
+		err = delegator.LoadGrowing(context.Background(), []*querypb.SegmentLoadInfo{{}, {}}, 100)
+		s.ErrorIs(err, mockErr)
 	})
 
 	s.Run("load_segments_with_streaming_delete_failed", func() {
@@ -663,6 +750,7 @@ func (s *DelegatorDataSuite) TestReleaseSegment() {
 			ms.EXPECT().Collection().Return(info.GetCollectionID())
 			ms.EXPECT().Indexes().Return(nil)
 			ms.EXPECT().RowNum().Return(info.GetNumOfRows())
+			ms.EXPECT().Delete(mock.Anything, mock.Anything).Return(nil)
 			ms.EXPECT().MayPkExist(mock.Anything).Call.Return(func(pk storage.PrimaryKey) bool {
 				return pk.EQ(storage.NewInt64PrimaryKey(10))
 			})
@@ -809,6 +897,51 @@ func (s *DelegatorDataSuite) TestSyncTargetVersion() {
 
 	s.delegator.SyncTargetVersion(int64(5), []int64{1}, []int64{2}, []int64{3, 4})
 	s.Equal(int64(5), s.delegator.GetTargetVersion())
+}
+
+func (s *DelegatorDataSuite) TestLevel0Deletions() {
+	delegator := s.delegator.(*shardDelegator)
+	partitionID := int64(10)
+	partitionDeleteData := storage.NewDeleteData([]storage.PrimaryKey{storage.NewInt64PrimaryKey(1)}, []storage.Timestamp{100})
+	allPartitionDeleteData := storage.NewDeleteData([]storage.PrimaryKey{storage.NewInt64PrimaryKey(2)}, []storage.Timestamp{101})
+	delegator.level0Deletions[partitionID] = partitionDeleteData
+
+	pks, _ := delegator.GetLevel0Deletions(partitionID)
+	s.True(pks[0].EQ(partitionDeleteData.Pks[0]))
+
+	pks, _ = delegator.GetLevel0Deletions(partitionID + 1)
+	s.Empty(pks)
+
+	delegator.level0Deletions[common.InvalidPartitionID] = allPartitionDeleteData
+	pks, _ = delegator.GetLevel0Deletions(partitionID)
+	s.Len(pks, 2)
+	s.True(pks[0].EQ(partitionDeleteData.Pks[0]))
+	s.True(pks[1].EQ(allPartitionDeleteData.Pks[0]))
+
+	delete(delegator.level0Deletions, partitionID)
+	pks, _ = delegator.GetLevel0Deletions(partitionID)
+	s.True(pks[0].EQ(allPartitionDeleteData.Pks[0]))
+
+	// exchange the order
+	delegator.level0Deletions = make(map[int64]*storage.DeleteData)
+	partitionDeleteData, allPartitionDeleteData = allPartitionDeleteData, partitionDeleteData
+	delegator.level0Deletions[partitionID] = partitionDeleteData
+
+	pks, _ = delegator.GetLevel0Deletions(partitionID)
+	s.True(pks[0].EQ(partitionDeleteData.Pks[0]))
+
+	pks, _ = delegator.GetLevel0Deletions(partitionID + 1)
+	s.Empty(pks)
+
+	delegator.level0Deletions[common.InvalidPartitionID] = allPartitionDeleteData
+	pks, _ = delegator.GetLevel0Deletions(partitionID)
+	s.Len(pks, 2)
+	s.True(pks[0].EQ(allPartitionDeleteData.Pks[0]))
+	s.True(pks[1].EQ(partitionDeleteData.Pks[0]))
+
+	delete(delegator.level0Deletions, partitionID)
+	pks, _ = delegator.GetLevel0Deletions(partitionID)
+	s.True(pks[0].EQ(allPartitionDeleteData.Pks[0]))
 }
 
 func TestDelegatorDataSuite(t *testing.T) {

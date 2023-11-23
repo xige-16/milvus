@@ -34,9 +34,11 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/querypb"
 	"github.com/milvus-io/milvus/internal/querynodev2/cluster"
 	"github.com/milvus-io/milvus/internal/querynodev2/delegator/deletebuffer"
+	"github.com/milvus-io/milvus/internal/querynodev2/optimizers"
 	"github.com/milvus-io/milvus/internal/querynodev2/pkoracle"
 	"github.com/milvus-io/milvus/internal/querynodev2/segments"
 	"github.com/milvus-io/milvus/internal/querynodev2/tsafe"
+	"github.com/milvus-io/milvus/internal/storage"
 	"github.com/milvus-io/milvus/internal/util/streamrpc"
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
@@ -92,11 +94,13 @@ type shardDelegator struct {
 
 	lifetime lifetime.Lifetime[lifetime.State]
 
-	distribution   *distribution
-	segmentManager segments.SegmentManager
-	tsafeManager   tsafe.Manager
-	pkOracle       pkoracle.PkOracle
-	// L0 delete buffer
+	distribution    *distribution
+	segmentManager  segments.SegmentManager
+	tsafeManager    tsafe.Manager
+	pkOracle        pkoracle.PkOracle
+	level0Mut       sync.RWMutex
+	level0Deletions map[int64]*storage.DeleteData // partitionID -> deletions
+	// stream delete buffer
 	deleteMut    sync.Mutex
 	deleteBuffer deletebuffer.DeleteBuffer[*deletebuffer.Item]
 	// dispatcherClient msgdispatcher.Client
@@ -106,6 +110,8 @@ type shardDelegator struct {
 	loader      segments.Loader
 	tsCond      *sync.Cond
 	latestTsafe *atomic.Uint64
+	// queryHook
+	queryHook optimizers.QueryHook
 }
 
 // getLogger returns the zap logger with pre-defined shard attributes.
@@ -206,8 +212,12 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 		fmt.Sprint(paramtable.GetNodeID()), metrics.SearchLabel).
 		Observe(float64(waitTr.ElapseSpan().Milliseconds()))
 
-	sealed, growing, version := sd.distribution.GetSegments(true, req.GetReq().GetPartitionIDs()...)
-	defer sd.distribution.FinishUsage(version)
+	sealed, growing, version, err := sd.distribution.PinReadableSegments(req.GetReq().GetPartitionIDs()...)
+	if err != nil {
+		log.Warn("delegator failed to search, current distribution is not serviceable")
+		return nil, merr.WrapErrChannelNotAvailable(sd.vchannelName, "distribution is not servcieable")
+	}
+	defer sd.distribution.Unpin(version)
 	existPartitions := sd.collection.GetPartitions()
 	growing = lo.Filter(growing, func(segment SegmentEntry, _ int) bool {
 		return funcutil.SliceContain(existPartitions, segment.PartitionID)
@@ -222,6 +232,13 @@ func (sd *shardDelegator) Search(ctx context.Context, req *querypb.SearchRequest
 		zap.Int("sealedNum", sealedNum),
 		zap.Int("growingNum", len(growing)),
 	)
+
+	req, err = optimizers.OptimizeSearchParams(ctx, req, sd.queryHook, sealedNum)
+	if err != nil {
+		log.Warn("failed to optimize search params", zap.Error(err))
+		return nil, err
+	}
+
 	tasks, err := organizeSubTask(ctx, req, sealed, growing, sd, sd.modifySearchRequest)
 	if err != nil {
 		log.Warn("Search organizeSubTask failed", zap.Error(err))
@@ -270,8 +287,12 @@ func (sd *shardDelegator) QueryStream(ctx context.Context, req *querypb.QueryReq
 		fmt.Sprint(paramtable.GetNodeID()), metrics.QueryLabel).
 		Observe(float64(waitTr.ElapseSpan().Milliseconds()))
 
-	sealed, growing, version := sd.distribution.GetSegments(true, req.GetReq().GetPartitionIDs()...)
-	defer sd.distribution.FinishUsage(version)
+	sealed, growing, version, err := sd.distribution.PinReadableSegments(req.GetReq().GetPartitionIDs()...)
+	if err != nil {
+		log.Warn("delegator failed to query, current distribution is not serviceable")
+		return merr.WrapErrChannelNotAvailable(sd.vchannelName, "distribution is not servcieable")
+	}
+	defer sd.distribution.Unpin(version)
 	existPartitions := sd.collection.GetPartitions()
 	growing = lo.Filter(growing, func(segment SegmentEntry, _ int) bool {
 		return funcutil.SliceContain(existPartitions, segment.PartitionID)
@@ -334,8 +355,12 @@ func (sd *shardDelegator) Query(ctx context.Context, req *querypb.QueryRequest) 
 		fmt.Sprint(paramtable.GetNodeID()), metrics.QueryLabel).
 		Observe(float64(waitTr.ElapseSpan().Milliseconds()))
 
-	sealed, growing, version := sd.distribution.GetSegments(true, req.GetReq().GetPartitionIDs()...)
-	defer sd.distribution.FinishUsage(version)
+	sealed, growing, version, err := sd.distribution.PinReadableSegments(req.GetReq().GetPartitionIDs()...)
+	if err != nil {
+		log.Warn("delegator failed to query, current distribution is not serviceable")
+		return nil, merr.WrapErrChannelNotAvailable(sd.vchannelName, "distribution is not servcieable")
+	}
+	defer sd.distribution.Unpin(version)
 	existPartitions := sd.collection.GetPartitions()
 	growing = lo.Filter(growing, func(segment SegmentEntry, _ int) bool {
 		return funcutil.SliceContain(existPartitions, segment.PartitionID)
@@ -377,21 +402,25 @@ func (sd *shardDelegator) GetStatistics(ctx context.Context, req *querypb.GetSta
 	defer sd.lifetime.Done()
 
 	if !funcutil.SliceContain(req.GetDmlChannels(), sd.vchannelName) {
-		log.Warn("deletgator received query request not belongs to it",
+		log.Warn("delegator received GetStatistics request not belongs to it",
 			zap.Strings("reqChannels", req.GetDmlChannels()),
 		)
-		return nil, fmt.Errorf("dml channel not match, delegator channel %s, search channels %v", sd.vchannelName, req.GetDmlChannels())
+		return nil, fmt.Errorf("dml channel not match, delegator channel %s, GetStatistics channels %v", sd.vchannelName, req.GetDmlChannels())
 	}
 
 	// wait tsafe
 	err := sd.waitTSafe(ctx, req.Req.GuaranteeTimestamp)
 	if err != nil {
-		log.Warn("delegator query failed to wait tsafe", zap.Error(err))
+		log.Warn("delegator GetStatistics failed to wait tsafe", zap.Error(err))
 		return nil, err
 	}
 
-	sealed, growing, version := sd.distribution.GetSegments(true, req.Req.GetPartitionIDs()...)
-	defer sd.distribution.FinishUsage(version)
+	sealed, growing, version, err := sd.distribution.PinReadableSegments(req.Req.GetPartitionIDs()...)
+	if err != nil {
+		log.Warn("delegator failed to GetStatistics, current distribution is not servicable")
+		return nil, merr.WrapErrChannelNotAvailable(sd.vchannelName, "distribution is not serviceable")
+	}
+	defer sd.distribution.Unpin(version)
 
 	tasks, err := organizeSubTask(ctx, req, sealed, growing, sd, func(req *querypb.GetStatisticsRequest, scope querypb.DataScope, segmentIDs []int64, targetID int64) *querypb.GetStatisticsRequest {
 		nodeReq := proto.Clone(req).(*querypb.GetStatisticsRequest)
@@ -620,7 +649,7 @@ func (sd *shardDelegator) Close() {
 // NewShardDelegator creates a new ShardDelegator instance with all fields initialized.
 func NewShardDelegator(ctx context.Context, collectionID UniqueID, replicaID UniqueID, channel string, version int64,
 	workerManager cluster.Manager, manager *segments.Manager, tsafeManager tsafe.Manager, loader segments.Loader,
-	factory msgstream.Factory, startTs uint64,
+	factory msgstream.Factory, startTs uint64, queryHook optimizers.QueryHook,
 ) (ShardDelegator, error) {
 	log := log.Ctx(ctx).With(zap.Int64("collectionID", collectionID),
 		zap.Int64("replicaID", replicaID),
@@ -638,21 +667,23 @@ func NewShardDelegator(ctx context.Context, collectionID UniqueID, replicaID Uni
 	log.Info("Init delta cache", zap.Int64("maxSegmentCacheBuffer", maxSegmentDeleteBuffer), zap.Time("startTime", tsoutil.PhysicalTime(startTs)))
 
 	sd := &shardDelegator{
-		collectionID:   collectionID,
-		replicaID:      replicaID,
-		vchannelName:   channel,
-		version:        version,
-		collection:     collection,
-		segmentManager: manager.Segment,
-		workerManager:  workerManager,
-		lifetime:       lifetime.NewLifetime(lifetime.Initializing),
-		distribution:   NewDistribution(),
-		deleteBuffer:   deletebuffer.NewDoubleCacheDeleteBuffer[*deletebuffer.Item](startTs, maxSegmentDeleteBuffer),
-		pkOracle:       pkoracle.NewPkOracle(),
-		tsafeManager:   tsafeManager,
-		latestTsafe:    atomic.NewUint64(startTs),
-		loader:         loader,
-		factory:        factory,
+		collectionID:    collectionID,
+		replicaID:       replicaID,
+		vchannelName:    channel,
+		version:         version,
+		collection:      collection,
+		segmentManager:  manager.Segment,
+		workerManager:   workerManager,
+		lifetime:        lifetime.NewLifetime(lifetime.Initializing),
+		distribution:    NewDistribution(),
+		level0Deletions: make(map[int64]*storage.DeleteData),
+		deleteBuffer:    deletebuffer.NewDoubleCacheDeleteBuffer[*deletebuffer.Item](startTs, maxSegmentDeleteBuffer),
+		pkOracle:        pkoracle.NewPkOracle(),
+		tsafeManager:    tsafeManager,
+		latestTsafe:     atomic.NewUint64(startTs),
+		loader:          loader,
+		factory:         factory,
+		queryHook:       queryHook,
 	}
 	m := sync.Mutex{}
 	sd.tsCond = sync.NewCond(&m)

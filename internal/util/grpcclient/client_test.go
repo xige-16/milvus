@@ -28,6 +28,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/examples/helloworld/helloworld"
@@ -37,6 +38,7 @@ import (
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
 	"github.com/milvus-io/milvus/internal/proto/rootcoordpb"
+	"github.com/milvus-io/milvus/internal/util/sessionutil"
 	"github.com/milvus-io/milvus/pkg/util/merr"
 	"github.com/milvus-io/milvus/pkg/util/paramtable"
 	"github.com/milvus-io/milvus/pkg/util/typeutil"
@@ -90,6 +92,47 @@ func TestClientBase_connect(t *testing.T) {
 		assert.Error(t, err)
 		assert.True(t, errors.Is(err, errMock))
 	})
+}
+
+func TestClientBase_NodeSessionNotExist(t *testing.T) {
+	base := ClientBase[*mockClient]{
+		maxCancelError: 10,
+		MaxAttempts:    3,
+	}
+	base.SetGetAddrFunc(func() (string, error) {
+		return "", errors.New("mocked address error")
+	})
+	base.role = typeutil.QueryNodeRole
+	mockSession := sessionutil.NewMockSession(t)
+	mockSession.EXPECT().GetSessions(mock.Anything).Return(nil, 0, nil)
+	base.sess = mockSession
+	base.grpcClientMtx.Lock()
+	base.grpcClient = nil
+	base.grpcClientMtx.Unlock()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	_, err := base.Call(ctx, func(client *mockClient) (any, error) {
+		return struct{}{}, nil
+	})
+	assert.True(t, errors.Is(err, merr.ErrNodeNotFound))
+
+	// test querynode/datanode/indexnode/proxy already down, but new node start up with same ip and port
+	base.grpcClientMtx.Lock()
+	base.grpcClient = &mockClient{}
+	base.grpcClientMtx.Unlock()
+	_, err = base.Call(ctx, func(client *mockClient) (any, error) {
+		return struct{}{}, status.Errorf(codes.Unknown, merr.ErrNodeNotMatch.Error())
+	})
+	assert.True(t, errors.Is(err, merr.ErrNodeNotFound))
+
+	// test querynode/datanode/indexnode/proxy down, return unavailable error
+	base.grpcClientMtx.Lock()
+	base.grpcClient = &mockClient{}
+	base.grpcClientMtx.Unlock()
+	_, err = base.Call(ctx, func(client *mockClient) (any, error) {
+		return struct{}{}, status.Errorf(codes.Unavailable, "fake error")
+	})
+	assert.True(t, errors.Is(err, merr.ErrNodeNotFound))
 }
 
 func TestClientBase_Call(t *testing.T) {
@@ -309,19 +352,34 @@ func TestClientBase_Recall(t *testing.T) {
 	})
 }
 
-func TestClientBase_CheckError(t *testing.T) {
+func TestClientBase_CheckGrpcError(t *testing.T) {
 	base := ClientBase[*mockClient]{}
 	base.grpcClient = &mockClient{}
 	base.MaxAttempts = 1
 
 	ctx := context.Background()
-	retry, reset, _ := base.checkErr(ctx, status.Errorf(codes.Canceled, "fake context canceled"))
+	retry, reset, _ := base.checkGrpcErr(ctx, status.Errorf(codes.Canceled, "fake context canceled"))
 	assert.True(t, retry)
 	assert.True(t, reset)
 
-	retry, reset, _ = base.checkErr(ctx, status.Errorf(codes.Unimplemented, "fake context canceled"))
+	retry, reset, _ = base.checkGrpcErr(ctx, status.Errorf(codes.Unimplemented, "fake context canceled"))
 	assert.False(t, retry)
 	assert.False(t, reset)
+
+	// test serverId mismatch
+	retry, reset, _ = base.checkGrpcErr(ctx, status.Errorf(codes.Unknown, merr.ErrNodeNotMatch.Error()))
+	assert.True(t, retry)
+	assert.True(t, reset)
+
+	// test cross cluster
+	retry, reset, _ = base.checkGrpcErr(ctx, status.Errorf(codes.Unknown, merr.ErrServiceCrossClusterRouting.Error()))
+	assert.True(t, retry)
+	assert.True(t, reset)
+
+	// test default
+	retry, reset, _ = base.checkGrpcErr(ctx, status.Errorf(codes.Unknown, merr.ErrNodeNotFound.Error()))
+	assert.True(t, retry)
+	assert.True(t, reset)
 }
 
 type server struct {

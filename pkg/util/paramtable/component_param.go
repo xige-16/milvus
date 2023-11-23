@@ -14,7 +14,6 @@ package paramtable
 import (
 	"fmt"
 	"os"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +24,7 @@ import (
 
 	"github.com/milvus-io/milvus/pkg/config"
 	"github.com/milvus-io/milvus/pkg/log"
+	"github.com/milvus-io/milvus/pkg/util/hardware"
 	"github.com/milvus-io/milvus/pkg/util/metricsinfo"
 )
 
@@ -37,7 +37,7 @@ const (
 	DefaultMiddlePriorityThreadCoreCoefficient = 5
 	DefaultLowPriorityThreadCoreCoefficient    = 1
 
-	DefaultSessionTTL        = 60 // s
+	DefaultSessionTTL        = 30 // s
 	DefaultSessionRetryTimes = 30
 
 	DefaultMaxDegree                = 56
@@ -219,6 +219,7 @@ type commonConfig struct {
 	LockSlowLogWarnThreshold ParamItem `refreshable:"true"`
 
 	TTMsgEnabled ParamItem `refreshable:"true"`
+	TraceLogMode ParamItem `refreshable:"true"`
 }
 
 func (p *commonConfig) init(base *BaseTable) {
@@ -481,7 +482,7 @@ This configuration is only used by querynode and indexnode, it selects CPU instr
 		Key:          "common.storageType",
 		Version:      "2.0.0",
 		DefaultValue: "minio",
-		Doc:          "please adjust in embedded Milvus: local",
+		Doc:          "please adjust in embedded Milvus: local, available values are [local, minio, remote, opendal]]",
 		Export:       true,
 	}
 	p.StorageType.Init(base.mgr)
@@ -633,6 +634,14 @@ like the old password verification when updating the credential`,
 		Doc:          "Whether the instance disable sending ts messages",
 	}
 	p.TTMsgEnabled.Init(base.mgr)
+
+	p.TraceLogMode = ParamItem{
+		Key:          "common.traceLogMode",
+		Version:      "2.3.4",
+		DefaultValue: "0",
+		Doc:          "trace request info",
+	}
+	p.TraceLogMode.Init(base.mgr)
 }
 
 type traceConfig struct {
@@ -861,6 +870,7 @@ type AccessLogConfig struct {
 	LocalPath     ParamItem `refreshable:"false"`
 	Filename      ParamItem `refreshable:"false"`
 	MaxSize       ParamItem `refreshable:"false"`
+	CacheSize     ParamItem `refreshable:"false"`
 	RotatedTime   ParamItem `refreshable:"false"`
 	MaxBackups    ParamItem `refreshable:"false"`
 	RemotePath    ParamItem `refreshable:"false"`
@@ -1073,6 +1083,14 @@ please adjust in embedded Milvus: false`,
 	}
 	p.AccessLog.MaxSize.Init(base.mgr)
 
+	p.AccessLog.CacheSize = ParamItem{
+		Key:          "proxy.accessLog.maxSize",
+		Version:      "2.3.2",
+		DefaultValue: "10240",
+		Doc:          "Size of log of memory cache, in B",
+	}
+	p.AccessLog.CacheSize.Init(base.mgr)
+
 	p.AccessLog.MaxBackups = ParamItem{
 		Key:          "proxy.accessLog.maxBackups",
 		Version:      "2.2.0",
@@ -1195,16 +1213,17 @@ type queryCoordConfig struct {
 	// Deprecated: Since 2.2.2, use different interval for different checker
 	CheckInterval ParamItem `refreshable:"true"`
 
-	NextTargetSurviveTime       ParamItem `refreshable:"true"`
-	UpdateNextTargetInterval    ParamItem `refreshable:"false"`
-	CheckNodeInReplicaInterval  ParamItem `refreshable:"false"`
-	CheckResourceGroupInterval  ParamItem `refreshable:"false"`
-	EnableRGAutoRecover         ParamItem `refreshable:"true"`
-	CheckHealthInterval         ParamItem `refreshable:"false"`
-	CheckHealthRPCTimeout       ParamItem `refreshable:"true"`
-	BrokerTimeout               ParamItem `refreshable:"false"`
-	CollectionRecoverTimesLimit ParamItem `refreshable:"true"`
-	ObserverTaskParallel        ParamItem `refreshable:"false"`
+	NextTargetSurviveTime          ParamItem `refreshable:"true"`
+	UpdateNextTargetInterval       ParamItem `refreshable:"false"`
+	CheckNodeInReplicaInterval     ParamItem `refreshable:"false"`
+	CheckResourceGroupInterval     ParamItem `refreshable:"false"`
+	EnableRGAutoRecover            ParamItem `refreshable:"true"`
+	CheckHealthInterval            ParamItem `refreshable:"false"`
+	CheckHealthRPCTimeout          ParamItem `refreshable:"true"`
+	BrokerTimeout                  ParamItem `refreshable:"false"`
+	CollectionRecoverTimesLimit    ParamItem `refreshable:"true"`
+	ObserverTaskParallel           ParamItem `refreshable:"false"`
+	CheckAutoBalanceConfigInterval ParamItem `refreshable:"false"`
 }
 
 func (p *queryCoordConfig) init(base *BaseTable) {
@@ -1252,7 +1271,7 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 	p.AutoBalance = ParamItem{
 		Key:          "queryCoord.autoBalance",
 		Version:      "2.0.0",
-		DefaultValue: "true",
+		DefaultValue: "false",
 		PanicIfEmpty: true,
 		Doc:          "Enable auto balance",
 		Export:       true,
@@ -1526,6 +1545,16 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.ObserverTaskParallel.Init(base.mgr)
+
+	p.CheckAutoBalanceConfigInterval = ParamItem{
+		Key:          "queryCoord.checkAutoBalanceConfigInterval",
+		Version:      "2.3.3",
+		DefaultValue: "10",
+		PanicIfEmpty: true,
+		Doc:          "the interval of check auto balance config",
+		Export:       true,
+	}
+	p.CheckAutoBalanceConfigInterval.Init(base.mgr)
 }
 
 // /////////////////////////////////////////////////////////////////////////////
@@ -1541,11 +1570,11 @@ type queryNodeConfig struct {
 	StatsPublishInterval ParamItem `refreshable:"true"`
 
 	// segcore
-	KnowhereThreadPoolSize    ParamItem `refreshable:"false"`
-	ChunkRows                 ParamItem `refreshable:"false"`
-	EnableGrowingSegmentIndex ParamItem `refreshable:"false"`
-	GrowingIndexNlist         ParamItem `refreshable:"false"`
-	GrowingIndexNProbe        ParamItem `refreshable:"false"`
+	KnowhereThreadPoolSize ParamItem `refreshable:"false"`
+	ChunkRows              ParamItem `refreshable:"false"`
+	EnableTempSegmentIndex ParamItem `refreshable:"false"`
+	InterimIndexNlist      ParamItem `refreshable:"false"`
+	InterimIndexNProbe     ParamItem `refreshable:"false"`
 
 	// memory limit
 	LoadMemoryUsageFactor               ParamItem `refreshable:"true"`
@@ -1643,7 +1672,7 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 			} else if factor > 32 {
 				factor = 32
 			}
-			knowhereThreadPoolSize := uint32(runtime.GOMAXPROCS(0)) * uint32(factor)
+			knowhereThreadPoolSize := uint32(hardware.GetCPUNum()) * uint32(factor)
 			return strconv.FormatUint(uint64(knowhereThreadPoolSize), 10)
 		},
 		Doc:    "The number of threads in knowhere's thread pool. If disk is enabled, the pool size will multiply with knowhereThreadPoolNumRatio([1, 32]).",
@@ -1666,42 +1695,42 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 	}
 	p.ChunkRows.Init(base.mgr)
 
-	p.EnableGrowingSegmentIndex = ParamItem{
-		Key:          "queryNode.segcore.growing.enableIndex",
+	p.EnableTempSegmentIndex = ParamItem{
+		Key:          "queryNode.segcore.interimIndex.enableIndex",
 		Version:      "2.0.0",
 		DefaultValue: "false",
-		Doc:          "Enable segment growing with index to accelerate vector search.",
+		Doc:          "Enable segment build with index to accelerate vector search when segment is in growing or binlog.",
 		Export:       true,
 	}
-	p.EnableGrowingSegmentIndex.Init(base.mgr)
+	p.EnableTempSegmentIndex.Init(base.mgr)
 
-	p.GrowingIndexNlist = ParamItem{
-		Key:          "queryNode.segcore.growing.nlist",
+	p.InterimIndexNlist = ParamItem{
+		Key:          "queryNode.segcore.interimIndex.nlist",
 		Version:      "2.0.0",
 		DefaultValue: "128",
-		Doc:          "growing index nlist, recommend to set sqrt(chunkRows), must smaller than chunkRows/8",
+		Doc:          "temp index nlist, recommend to set sqrt(chunkRows), must smaller than chunkRows/8",
 		Export:       true,
 	}
-	p.GrowingIndexNlist.Init(base.mgr)
+	p.InterimIndexNlist.Init(base.mgr)
 
-	p.GrowingIndexNProbe = ParamItem{
-		Key:     "queryNode.segcore.growing.nprobe",
+	p.InterimIndexNProbe = ParamItem{
+		Key:     "queryNode.segcore.interimIndex.nprobe",
 		Version: "2.0.0",
 		Formatter: func(v string) string {
-			defaultNprobe := p.GrowingIndexNlist.GetAsInt64() / 8
+			defaultNprobe := p.InterimIndexNlist.GetAsInt64() / 8
 			nprobe := getAsInt64(v)
 			if nprobe == 0 {
 				nprobe = defaultNprobe
 			}
-			if nprobe > p.GrowingIndexNlist.GetAsInt64() {
-				return p.GrowingIndexNlist.GetValue()
+			if nprobe > p.InterimIndexNlist.GetAsInt64() {
+				return p.InterimIndexNlist.GetValue()
 			}
 			return strconv.FormatInt(nprobe, 10)
 		},
 		Doc:    "nprobe to search small index, based on your accuracy requirement, must smaller than nlist",
 		Export: true,
 	}
-	p.GrowingIndexNProbe.Init(base.mgr)
+	p.InterimIndexNProbe.Init(base.mgr)
 
 	p.LoadMemoryUsageFactor = ParamItem{
 		Key:          "queryNode.loadMemoryUsageFactor",
@@ -1780,7 +1809,7 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 		DefaultValue: "1.0",
 		Formatter: func(v string) string {
 			ratio := getAsFloat(v)
-			cpuNum := int64(runtime.GOMAXPROCS(0))
+			cpuNum := int64(hardware.GetCPUNum())
 			concurrency := int64(float64(cpuNum) * ratio)
 			if concurrency < 1 {
 				return "1" // MaxReadConcurrency must >= 1
@@ -1790,9 +1819,9 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 			return strconv.FormatInt(concurrency, 10)
 		},
 		Doc: `maxReadConcurrentRatio is the concurrency ratio of read task (search task and query task).
-Max read concurrency would be the value of ` + "runtime.NumCPU * maxReadConcurrentRatio" + `.
-It defaults to 2.0, which means max read concurrency would be the value of runtime.NumCPU * 2.
-Max read concurrency must greater than or equal to 1, and less than or equal to runtime.NumCPU * 100.
+Max read concurrency would be the value of ` + "hardware.GetCPUNum * maxReadConcurrentRatio" + `.
+It defaults to 2.0, which means max read concurrency would be the value of hardware.GetCPUNum * 2.
+Max read concurrency must greater than or equal to 1, and less than or equal to hardware.GetCPUNum * 100.
 (0, 100]`,
 		Export: true,
 	}
@@ -2016,6 +2045,11 @@ type dataCoordConfig struct {
 	SingleCompactionDeltalogMaxNum    ParamItem `refreshable:"true"`
 	GlobalCompactionInterval          ParamItem `refreshable:"false"`
 
+	// LevelZero Segment
+	EnableLevelZeroSegment                   ParamItem `refreshable:"false"`
+	LevelZeroCompactionTriggerMinSize        ParamItem `refreshable:"true"`
+	LevelZeroCompactionTriggerDeltalogMinNum ParamItem `refreshable:"true"`
+
 	// Garbage Collection
 	EnableGarbageCollection ParamItem `refreshable:"false"`
 	GCInterval              ParamItem `refreshable:"false"`
@@ -2031,6 +2065,10 @@ type dataCoordConfig struct {
 
 	MinSegmentNumRowsToEnableIndex ParamItem `refreshable:"true"`
 	BrokerTimeout                  ParamItem `refreshable:"false"`
+
+	// auto balance channel on datanode
+	AutoBalance                    ParamItem `refreshable:"true"`
+	CheckAutoBalanceConfigInterval ParamItem `refreshable:"false"`
 }
 
 func (p *dataCoordConfig) init(base *BaseTable) {
@@ -2295,6 +2333,31 @@ During compaction, the size of segment # of rows is able to exceed segment max #
 	}
 	p.GlobalCompactionInterval.Init(base.mgr)
 
+	// LevelZeroCompaction
+	p.EnableLevelZeroSegment = ParamItem{
+		Key:          "dataCoord.segment.enableLevelZero",
+		Version:      "2.3.4",
+		Doc:          "Whether to enable LevelZeroCompaction",
+		DefaultValue: "false",
+	}
+	p.EnableLevelZeroSegment.Init(base.mgr)
+
+	p.LevelZeroCompactionTriggerMinSize = ParamItem{
+		Key:          "dataCoord.compaction.levelzero.forceTrigger.minSize",
+		Version:      "2.3.4",
+		Doc:          "The minmum size in MB to force trigger a LevelZero Compaction",
+		DefaultValue: "8",
+	}
+	p.LevelZeroCompactionTriggerMinSize.Init(base.mgr)
+
+	p.LevelZeroCompactionTriggerDeltalogMinNum = ParamItem{
+		Key:          "dataCoord.compaction.levelzero.forceTrigger.deltalogMinNum",
+		Version:      "2.3.4",
+		Doc:          "The minimum number of deltalog files to force trigger a LevelZero Compaction",
+		DefaultValue: "10",
+	}
+	p.LevelZeroCompactionTriggerDeltalogMinNum.Init(base.mgr)
+
 	p.EnableGarbageCollection = ParamItem{
 		Key:          "dataCoord.enableGarbageCollection",
 		Version:      "2.0.0",
@@ -2396,6 +2459,26 @@ During compaction, the size of segment # of rows is able to exceed segment max #
 		Export:       true,
 	}
 	p.BrokerTimeout.Init(base.mgr)
+
+	p.AutoBalance = ParamItem{
+		Key:          "dataCoord.autoBalance",
+		Version:      "2.3.3",
+		DefaultValue: "false",
+		PanicIfEmpty: true,
+		Doc:          "Enable auto balance",
+		Export:       true,
+	}
+	p.AutoBalance.Init(base.mgr)
+
+	p.CheckAutoBalanceConfigInterval = ParamItem{
+		Key:          "dataCoord.checkAutoBalanceConfigInterval",
+		Version:      "2.3.3",
+		DefaultValue: "10",
+		PanicIfEmpty: true,
+		Doc:          "the interval of check auto balance config",
+		Export:       true,
+	}
+	p.CheckAutoBalanceConfigInterval.Init(base.mgr)
 }
 
 // /////////////////////////////////////////////////////////////////////////////
@@ -2410,6 +2493,7 @@ type dataNodeConfig struct {
 	FlushDeleteBufferBytes ParamItem `refreshable:"true"`
 	BinLogMaxSize          ParamItem `refreshable:"true"`
 	SyncPeriod             ParamItem `refreshable:"true"`
+	DeltaPolicy            ParamItem `refreshable:"false"`
 
 	// watchEvent
 	WatchEventTicklerInterval ParamItem `refreshable:"false"`
@@ -2505,7 +2589,7 @@ func (p *dataNodeConfig) init(base *BaseTable) {
 			DefaultValue: "0.5",
 		}
 	} else {
-		log.Warn("DeployModeEnv is not set, use default", zap.Float64("default", 0.5))
+		log.Info("DeployModeEnv is not set, use default", zap.Float64("default", 0.5))
 		p.MemoryWatermark = ParamItem{
 			Key:          "datanode.memory.watermarkCluster",
 			Version:      "2.2.4",
@@ -2538,6 +2622,15 @@ func (p *dataNodeConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.SyncPeriod.Init(base.mgr)
+
+	p.DeltaPolicy = ParamItem{
+		Key:          "dataNode.segment.deltaPolicy",
+		Version:      "2.3.4",
+		DefaultValue: "bloom_filter_pkoracle",
+		Doc:          "the delta policy current datanode using",
+		Export:       true,
+	}
+	p.DeltaPolicy.Init(base.mgr)
 
 	p.WatchEventTicklerInterval = ParamItem{
 		Key:          "datanode.segment.watchEventTicklerInterval",

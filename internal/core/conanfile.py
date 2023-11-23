@@ -4,9 +4,9 @@ from conans import ConanFile
 class MilvusConan(ConanFile):
     settings = "os", "compiler", "build_type", "arch"
     requires = (
-        "rocksdb/6.29.5",
+        "rocksdb/6.29.5@milvus/dev",
         "boost/1.82.0",
-        "onetbb/2021.7.0",
+        "onetbb/2021.9.0",
         "nlohmann_json/3.11.2",
         "zstd/1.5.4",
         "lz4/1.9.4",
