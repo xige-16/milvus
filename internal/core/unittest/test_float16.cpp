@@ -278,7 +278,7 @@ TEST(Float16, CApiCPlan) {
     ASSERT_EQ(status.error_code, Success);
 
     int64_t field_id = -1;
-    status = GetFieldID(plan, &field_id);
+    status = GetANNSFieldID(plan, &field_id);
     ASSERT_EQ(status.error_code, Success);
 
     auto col = static_cast<Collection*>(collection);

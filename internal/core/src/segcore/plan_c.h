@@ -43,7 +43,7 @@ int64_t
 GetTopK(CSearchPlan plan);
 
 CStatus
-GetFieldID(CSearchPlan plan, int64_t* field_id);
+GetANNSFieldID(CSearchPlan plan, int64_t* field_id);
 
 const char*
 GetMetricType(CSearchPlan plan);

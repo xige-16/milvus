@@ -425,8 +425,8 @@ func (kc *Catalog) DropCollection(ctx context.Context, collectionInfo *model.Col
 	for _, field := range collectionInfo.Fields {
 		delMetakeysSnap = append(delMetakeysSnap, BuildFieldKey(collectionInfo.CollectionID, field.FieldID))
 	}
-	// delMetakeysSnap = append(delMetakeysSnap, buildPartitionPrefix(collectionInfo.CollectionID))
-	// delMetakeysSnap = append(delMetakeysSnap, buildFieldPrefix(collectionInfo.CollectionID))
+	delMetakeysSnap = append(delMetakeysSnap, BuildPartitionPrefix(collectionInfo.CollectionID))
+	delMetakeysSnap = append(delMetakeysSnap, BuildFieldPrefix(collectionInfo.CollectionID))
 
 	// Though batchMultiSaveAndRemoveWithPrefix is not atomic enough, we can promise atomicity outside.
 	// If we found collection under dropping state, we'll know that gc is not completely on this collection.

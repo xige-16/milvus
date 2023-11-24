@@ -164,7 +164,7 @@ func (suite *ReduceSuite) TestReduceAllFunc() {
 	proto.UnmarshalText(planStr, &planpb)
 	serializedPlan, err := proto.Marshal(&planpb)
 	suite.NoError(err)
-	plan, err := createSearchPlanByExpr(suite.collection, serializedPlan, "")
+	plan, err := createSearchPlanByExpr(suite.collection, serializedPlan)
 	suite.NoError(err)
 	searchReq, err := parseSearchRequest(plan, placeGroupByte)
 	suite.NoError(err)
