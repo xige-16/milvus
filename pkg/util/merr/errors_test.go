@@ -110,7 +110,7 @@ func (s *ErrSuite) TestWrap() {
 	s.ErrorIs(WrapErrSegmentReduplicate(1, "redundancy of segment"), ErrSegmentReduplicate)
 
 	// Index related
-	s.ErrorIs(WrapErrIndexNotFound("failed to get Index"), ErrIndexNotFound)
+	s.ErrorIs(WrapErrIndexNotFound("", "", "failed to get Index"), ErrIndexNotFound)
 	s.ErrorIs(WrapErrIndexNotFoundForCollection("milvus_hello", "failed to get collection index"), ErrIndexNotFound)
 	s.ErrorIs(WrapErrIndexNotFoundForSegment(100, "failed to get collection index"), ErrIndexNotFound)
 	s.ErrorIs(WrapErrIndexNotSupported("wsnh", "failed to create index"), ErrIndexNotSupported)

@@ -2187,7 +2187,7 @@ func Test_createIndexTask_getIndexedField(t *testing.T) {
 		}, nil)
 
 		globalMetaCache = cache
-		field, err := cit.getIndexedField(context.Background())
+		field, err := getIndexedField(context.Background(), cit.req.GetDbName(), cit.req.GetCollectionName(), cit.req.GetFieldName())
 		assert.NoError(t, err)
 		assert.Equal(t, fieldName, field.GetName())
 	})
@@ -2200,7 +2200,7 @@ func Test_createIndexTask_getIndexedField(t *testing.T) {
 			mock.AnythingOfType("string"),
 		).Return(nil, errors.New("mock"))
 		globalMetaCache = cache
-		_, err := cit.getIndexedField(context.Background())
+		_, err := getIndexedField(context.Background(), cit.req.GetDbName(), cit.req.GetCollectionName(), cit.req.GetFieldName())
 		assert.Error(t, err)
 	})
 
@@ -2221,7 +2221,7 @@ func Test_createIndexTask_getIndexedField(t *testing.T) {
 			},
 		}, nil)
 		globalMetaCache = cache
-		_, err := cit.getIndexedField(context.Background())
+		_, err := getIndexedField(context.Background(), cit.req.GetDbName(), cit.req.GetCollectionName(), cit.req.GetFieldName())
 		assert.Error(t, err)
 	})
 
@@ -2239,7 +2239,7 @@ func Test_createIndexTask_getIndexedField(t *testing.T) {
 			},
 		}, nil)
 		globalMetaCache = cache
-		_, err := cit.getIndexedField(context.Background())
+		_, err := getIndexedField(context.Background(), cit.req.GetDbName(), cit.req.GetCollectionName(), cit.req.GetFieldName())
 		assert.Error(t, err)
 	})
 }

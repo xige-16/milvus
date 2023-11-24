@@ -35,6 +35,7 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/datapb"
 	"github.com/milvus-io/milvus/internal/proto/indexpb"
 	"github.com/milvus-io/milvus/pkg/common"
+	"github.com/milvus-io/milvus/pkg/util/merr"
 )
 
 func TestMeta_CanCreateIndex(t *testing.T) {
@@ -475,9 +476,10 @@ func TestMeta_GetSegmentIndexState(t *testing.T) {
 		},
 	}
 
-	t.Run("segment has no index", func(t *testing.T) {
-		state := m.GetSegmentIndexState(collID, segID)
-		assert.Equal(t, commonpb.IndexState_IndexStateNone, state.state)
+	t.Run("collection has no index", func(t *testing.T) {
+		_, err := m.GetSegmentIndexState(collID, segID)
+		assert.Error(t, err)
+		assert.Equal(t, merr.Code(merr.ErrCollectionNotFound), merr.Code(err))
 	})
 
 	t.Run("meta not saved yet", func(t *testing.T) {
@@ -496,13 +498,23 @@ func TestMeta_GetSegmentIndexState(t *testing.T) {
 				UserIndexParams: indexParams,
 			},
 		}
-		state := m.GetSegmentIndexState(collID, segID)
-		assert.Equal(t, commonpb.IndexState_Unissued, state.state)
+		states, err := m.GetSegmentIndexState(collID, segID)
+		assert.NoError(t, err)
+		assert.Equal(t, 1, len(states))
+		assert.Equal(t, commonpb.IndexState_IndexStateNone, states[0].State)
+	})
+
+	t.Run("segment has no index", func(t *testing.T) {
+		states, err := m.GetSegmentIndexState(collID, segID)
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.IndexState_IndexStateNone, states[0].State)
 	})
 
 	t.Run("segment not exist", func(t *testing.T) {
-		state := m.GetSegmentIndexState(collID, segID+1)
-		assert.Equal(t, commonpb.IndexState_IndexStateNone, state.state)
+		states, err := m.GetSegmentIndexState(collID, segID+1)
+		assert.Error(t, err)
+		assert.Equal(t, merr.Code(merr.ErrSegmentNotFound), merr.Code(err))
+		assert.Equal(t, 0, len(states))
 	})
 
 	t.Run("unissued", func(t *testing.T) {
@@ -523,8 +535,9 @@ func TestMeta_GetSegmentIndexState(t *testing.T) {
 			IndexSize:     0,
 		})
 
-		state := m.GetSegmentIndexState(collID, segID)
-		assert.Equal(t, commonpb.IndexState_Unissued, state.state)
+		state, err := m.GetSegmentIndexState(collID, segID)
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.IndexState_Unissued, state[0].State)
 	})
 
 	t.Run("finish", func(t *testing.T) {
@@ -545,8 +558,9 @@ func TestMeta_GetSegmentIndexState(t *testing.T) {
 			IndexSize:     0,
 		})
 
-		state := m.GetSegmentIndexState(collID, segID)
-		assert.Equal(t, commonpb.IndexState_Finished, state.state)
+		state, err := m.GetSegmentIndexState(collID, segID)
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.IndexState_Finished, state[0].State)
 	})
 }
 
@@ -1223,6 +1237,19 @@ func TestMeta_GetHasUnindexTaskSegments(t *testing.T) {
 					FieldID:         fieldID,
 					IndexID:         indexID,
 					IndexName:       indexName,
+					IsDeleted:       false,
+					CreateTime:      0,
+					TypeParams:      nil,
+					IndexParams:     nil,
+					IsAutoIndex:     false,
+					UserIndexParams: nil,
+				},
+				indexID + 1: {
+					TenantID:        "",
+					CollectionID:    collID,
+					FieldID:         fieldID + 1,
+					IndexID:         indexID + 1,
+					IndexName:       indexName + "_1",
 					IsDeleted:       false,
 					CreateTime:      0,
 					TypeParams:      nil,

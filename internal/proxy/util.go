@@ -1505,6 +1505,30 @@ func checkDynamicFieldData(schema *schemapb.CollectionSchema, insertMsg *msgstre
 	return nil
 }
 
+func getIndexedField(ctx context.Context, dbName, collectionName, fieldName string) (*schemapb.FieldSchema, error) {
+	log := log.Ctx(ctx).With(
+		zap.String("dbName", dbName),
+		zap.String("collectionName", collectionName),
+		zap.String("fieldName", fieldName),
+	)
+	schema, err := globalMetaCache.GetCollectionSchema(ctx, dbName, collectionName)
+	if err != nil {
+		log.Error("failed to get collection schema", zap.Error(err))
+		return nil, fmt.Errorf("failed to get collection schema: %s", err)
+	}
+	schemaHelper, err := typeutil.CreateSchemaHelper(schema)
+	if err != nil {
+		log.Error("failed to parse collection schema", zap.Error(err))
+		return nil, fmt.Errorf("failed to parse collection schema: %s", err)
+	}
+	field, err := schemaHelper.GetFieldFromName(fieldName)
+	if err != nil {
+		log.Info("cannot find field", zap.Error(err))
+		return nil, fmt.Errorf("cannot find field %s on collection %s", fieldName, collectionName)
+	}
+	return field, nil
+}
+
 func SendReplicateMessagePack(ctx context.Context, replicateMsgStream msgstream.MsgStream, request interface{ GetBase() *commonpb.MsgBase }) {
 	if replicateMsgStream == nil || request == nil {
 		log.Warn("replicate msg stream or request is nil", zap.Any("request", request))

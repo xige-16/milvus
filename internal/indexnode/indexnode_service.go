@@ -76,7 +76,7 @@ func (i *IndexNode) CreateJob(ctx context.Context, req *indexpb.CreateJobRequest
 		cancel: taskCancel,
 		state:  commonpb.IndexState_InProgress,
 	}); oldInfo != nil {
-		err := merr.WrapErrIndexDuplicate(req.GetIndexName(), "building index task existed")
+		err := merr.WrapErrIndexDuplicate(req.GetIndexName(), "", "building index task existed")
 		log.Warn("duplicated index build task", zap.Error(err))
 		metrics.IndexNodeBuildIndexTaskCounter.WithLabelValues(fmt.Sprint(paramtable.GetNodeID()), metrics.FailLabel).Inc()
 		return merr.Status(err), nil

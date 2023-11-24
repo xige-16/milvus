@@ -602,8 +602,8 @@ func WrapErrSegmentReduplicate(id int64, msg ...string) error {
 }
 
 // Index related
-func WrapErrIndexNotFound(indexName string, msg ...string) error {
-	err := wrapFields(ErrIndexNotFound, value("indexName", indexName))
+func WrapErrIndexNotFound(indexName, fieldName string, msg ...string) error {
+	err := errors.Wrapf(ErrIndexNotFound, "indexName=%v, fieldName=%v", indexName, fieldName)
 	if len(msg) > 0 {
 		err = errors.Wrap(err, strings.Join(msg, "->"))
 	}
@@ -634,8 +634,8 @@ func WrapErrIndexNotSupported(indexType string, msg ...string) error {
 	return err
 }
 
-func WrapErrIndexDuplicate(indexName string, msg ...string) error {
-	err := wrapFields(ErrIndexDuplicate, value("indexName", indexName))
+func WrapErrIndexDuplicate(indexName, fieldName string, msg ...string) error {
+	err := errors.Wrapf(ErrIndexDuplicate, "indexName=%v, fieldName=%v", indexName, fieldName)
 	if len(msg) > 0 {
 		err = errors.Wrap(err, strings.Join(msg, "->"))
 	}

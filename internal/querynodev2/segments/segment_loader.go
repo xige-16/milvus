@@ -1070,7 +1070,7 @@ func (loader *segmentLoader) LoadIndex(ctx context.Context, segment *LocalSegmen
 		for _, info := range loadInfo.GetIndexInfos() {
 			if len(info.GetIndexFilePaths()) == 0 {
 				log.Warn("failed to add index for segment, index file list is empty, the segment may be too small")
-				return merr.WrapErrIndexNotFound("index file list empty")
+				return merr.WrapErrIndexNotFound(info.GetIndexName(), "", "index file list empty")
 			}
 
 			fieldInfo, ok := fieldInfos[info.GetFieldID()]

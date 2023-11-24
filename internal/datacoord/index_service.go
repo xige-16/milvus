@@ -26,6 +26,7 @@ import (
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus/internal/metastore/model"
 	"github.com/milvus-io/milvus/internal/proto/indexpb"
+	"github.com/milvus-io/milvus/pkg/common"
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/merr"
@@ -214,6 +215,8 @@ func (s *Server) GetIndexState(ctx context.Context, req *indexpb.GetIndexStateRe
 	log := log.Ctx(ctx).With(
 		zap.Int64("collectionID", req.GetCollectionID()),
 		zap.String("indexName", req.GetIndexName()),
+		zap.Int64("fieldID", req.GetFieldID()),
+		zap.String("fieldName", req.GetFieldName()),
 	)
 	log.Info("receive GetIndexState request")
 
@@ -224,17 +227,30 @@ func (s *Server) GetIndexState(ctx context.Context, req *indexpb.GetIndexStateRe
 		}, nil
 	}
 
-	indexes := s.meta.GetIndexesForCollection(req.GetCollectionID(), req.GetIndexName())
+	fieldName := req.GetFieldName()
+	if req.GetFieldID() >= common.StartOfUserFieldID && len(fieldName) == 0 {
+		field, err := getFieldByID(s.handler, req.GetCollectionID(), req.GetFieldID())
+		if err != nil {
+			err = merr.WrapErrFieldNotFound(req.GetFieldID())
+			log.Warn("GetIndexState fail", zap.Error(err))
+			return &indexpb.GetIndexStateResponse{
+				Status: merr.Status(err),
+			}, nil
+		}
+		fieldName = field.GetName()
+	}
+
+	indexes := s.meta.GetIndexesForField(req.GetCollectionID(), req.GetIndexName(), req.GetFieldID())
 	if len(indexes) == 0 {
-		err := merr.WrapErrIndexNotFound(req.GetIndexName())
+		err := merr.WrapErrIndexNotFound(req.GetIndexName(), fieldName)
 		log.Warn("GetIndexState fail", zap.Error(err))
 		return &indexpb.GetIndexStateResponse{
 			Status: merr.Status(err),
 		}, nil
 	}
 	if len(indexes) > 1 {
-		log.Warn(msgAmbiguousIndexName())
-		err := merr.WrapErrIndexDuplicate(req.GetIndexName())
+		log.Warn(msgAmbiguousIndex())
+		err := merr.WrapErrIndexDuplicate(req.GetIndexName(), fieldName)
 		return &indexpb.GetIndexStateResponse{
 			Status: merr.Status(err),
 		}, nil
@@ -263,7 +279,7 @@ func (s *Server) GetSegmentIndexState(ctx context.Context, req *indexpb.GetSegme
 	)
 	log.Info("receive GetSegmentIndexState",
 		zap.String("IndexName", req.GetIndexName()),
-		zap.Int64s("fieldID", req.GetSegmentIDs()),
+		zap.Int64s("segmentIDs", req.GetSegmentIDs()),
 	)
 
 	if err := merr.CheckHealthy(s.GetStateCode()); err != nil {
@@ -279,21 +295,24 @@ func (s *Server) GetSegmentIndexState(ctx context.Context, req *indexpb.GetSegme
 	}
 	indexID2CreateTs := s.meta.GetIndexIDByName(req.GetCollectionID(), req.GetIndexName())
 	if len(indexID2CreateTs) == 0 {
-		err := merr.WrapErrIndexNotFound(req.GetIndexName())
-		log.Warn("GetSegmentIndexState fail", zap.String("indexName", req.GetIndexName()), zap.Error(err))
+		// internal func, indexName is enough
+		err := merr.WrapErrIndexNotFound(req.GetIndexName(), "")
+		log.Warn("GetSegmentIndexState fail", zap.Error(err))
 		return &indexpb.GetSegmentIndexStateResponse{
 			Status: merr.Status(err),
 		}, nil
 	}
 	for _, segID := range req.GetSegmentIDs() {
-		state := s.meta.GetSegmentIndexState(req.GetCollectionID(), segID)
-		ret.States = append(ret.States, &indexpb.SegmentIndexState{
-			SegmentID:  segID,
-			State:      state.state,
-			FailReason: state.failReason,
-		})
+		states, err := s.meta.GetSegmentIndexState(req.GetCollectionID(), segID)
+		if err != nil {
+			log.Warn("GetSegmentIndexState fail", zap.Error(err))
+			return &indexpb.GetSegmentIndexStateResponse{
+				Status: merr.Status(err),
+			}, nil
+		}
+		ret.States = append(ret.States, states...)
 	}
-	log.Info("GetSegmentIndexState successfully", zap.String("indexName", req.GetIndexName()))
+	log.Info("GetSegmentIndexState successfully")
 	return ret, nil
 }
 
@@ -430,7 +449,11 @@ func (s *Server) GetIndexBuildProgress(ctx context.Context, req *indexpb.GetInde
 	log := log.Ctx(ctx).With(
 		zap.Int64("collectionID", req.GetCollectionID()),
 	)
-	log.Info("receive GetIndexBuildProgress request", zap.String("indexName", req.GetIndexName()))
+	log.Info("receive GetIndexBuildProgress request",
+		zap.String("indexName", req.GetIndexName()),
+		zap.Int64("fieldID", req.GetFieldID()),
+		zap.String("fieldName", req.GetFieldName()),
+	)
 
 	if err := merr.CheckHealthy(s.GetStateCode()); err != nil {
 		log.Warn(msgDataCoordIsUnhealthy(paramtable.GetNodeID()), zap.Error(err))
@@ -439,9 +462,22 @@ func (s *Server) GetIndexBuildProgress(ctx context.Context, req *indexpb.GetInde
 		}, nil
 	}
 
-	indexes := s.meta.GetIndexesForCollection(req.GetCollectionID(), req.GetIndexName())
+	fieldName := req.GetFieldName()
+	if req.GetFieldID() >= common.StartOfUserFieldID && len(fieldName) == 0 {
+		field, err := getFieldByID(s.handler, req.GetCollectionID(), req.GetFieldID())
+		if err != nil {
+			err = merr.WrapErrFieldNotFound(req.GetFieldID())
+			log.Warn("GetIndexBuildProgress fail", zap.Error(err))
+			return &indexpb.GetIndexBuildProgressResponse{
+				Status: merr.Status(err),
+			}, nil
+		}
+		fieldName = field.GetName()
+	}
+
+	indexes := s.meta.GetIndexesForField(req.GetCollectionID(), req.GetIndexName(), req.GetFieldID())
 	if len(indexes) == 0 {
-		err := merr.WrapErrIndexNotFound(req.GetIndexName())
+		err := merr.WrapErrIndexNotFound(req.GetIndexName(), fieldName)
 		log.Warn("GetIndexBuildProgress fail", zap.String("indexName", req.IndexName), zap.Error(err))
 		return &indexpb.GetIndexBuildProgressResponse{
 			Status: merr.Status(err),
@@ -449,8 +485,8 @@ func (s *Server) GetIndexBuildProgress(ctx context.Context, req *indexpb.GetInde
 	}
 
 	if len(indexes) > 1 {
-		log.Warn(msgAmbiguousIndexName())
-		err := merr.WrapErrIndexDuplicate(req.GetIndexName())
+		log.Warn(msgAmbiguousIndex())
+		err := merr.WrapErrIndexDuplicate(req.GetIndexName(), fieldName)
 		return &indexpb.GetIndexBuildProgressResponse{
 			Status: merr.Status(err),
 		}, nil
@@ -481,6 +517,8 @@ func (s *Server) DescribeIndex(ctx context.Context, req *indexpb.DescribeIndexRe
 	log := log.Ctx(ctx).With(
 		zap.Int64("collectionID", req.GetCollectionID()),
 		zap.String("indexName", req.GetIndexName()),
+		zap.Int64("fieldID", req.GetFieldID()),
+		zap.String("fieldName", req.GetFieldName()),
 	)
 	log.Info("receive DescribeIndex request",
 		zap.Uint64("timestamp", req.GetTimestamp()),
@@ -493,9 +531,23 @@ func (s *Server) DescribeIndex(ctx context.Context, req *indexpb.DescribeIndexRe
 		}, nil
 	}
 
-	indexes := s.meta.GetIndexesForCollection(req.GetCollectionID(), req.GetIndexName())
+	fieldName := req.GetFieldName()
+	if req.GetFieldID() >= common.StartOfUserFieldID && len(fieldName) == 0 {
+		field, err := getFieldByID(s.handler, req.GetCollectionID(), req.GetFieldID())
+		if err != nil {
+			err = merr.WrapErrFieldNotFound(req.GetFieldID())
+			log.Warn("DescribeIndex fail", zap.Error(err))
+			return &indexpb.DescribeIndexResponse{
+				Status: merr.Status(err),
+			}, nil
+		}
+		fieldName = field.GetName()
+	}
+
+	// INFO:: If the specified indexName and fieldID do not match, return empty indexes
+	indexes := s.meta.GetIndexesForField(req.CollectionID, req.GetIndexName(), req.GetFieldID())
 	if len(indexes) == 0 {
-		err := merr.WrapErrIndexNotFound(req.GetIndexName())
+		err := merr.WrapErrIndexNotFound(req.GetIndexName(), fieldName)
 		log.Warn("DescribeIndex fail", zap.Error(err))
 		return &indexpb.DescribeIndexResponse{
 			Status: merr.Status(err),
@@ -551,7 +603,8 @@ func (s *Server) GetIndexStatistics(ctx context.Context, req *indexpb.GetIndexSt
 
 	indexes := s.meta.GetIndexesForCollection(req.GetCollectionID(), req.GetIndexName())
 	if len(indexes) == 0 {
-		err := merr.WrapErrIndexNotFound(req.GetIndexName())
+		// grpc interface GetIndexStatistics does not expose the fieldName parameter
+		err := merr.WrapErrIndexNotFound(req.GetIndexName(), "")
 		log.Warn("GetIndexStatistics fail",
 			zap.String("indexName", req.GetIndexName()),
 			zap.Error(err))
@@ -599,7 +652,9 @@ func (s *Server) DropIndex(ctx context.Context, req *indexpb.DropIndexRequest) (
 		zap.Int64("collectionID", req.GetCollectionID()),
 	)
 	log.Info("receive DropIndex request",
-		zap.Int64s("partitionIDs", req.GetPartitionIDs()), zap.String("indexName", req.GetIndexName()),
+		zap.Int64s("partitionIDs", req.GetPartitionIDs()),
+		zap.String("indexName", req.GetIndexName()),
+		zap.Int64("fieldID", req.GetFieldID()),
 		zap.Bool("drop all indexes", req.GetDropAll()))
 
 	if err := merr.CheckHealthy(s.GetStateCode()); err != nil {
@@ -607,15 +662,28 @@ func (s *Server) DropIndex(ctx context.Context, req *indexpb.DropIndexRequest) (
 		return merr.Status(err), nil
 	}
 
-	indexes := s.meta.GetIndexesForCollection(req.GetCollectionID(), req.GetIndexName())
+	fieldName := req.GetFieldName()
+	if req.GetFieldID() >= common.StartOfUserFieldID && len(fieldName) == 0 {
+		field, err := getFieldByID(s.handler, req.GetCollectionID(), req.GetFieldID())
+		if err != nil {
+			err = merr.WrapErrFieldNotFound(req.GetFieldID())
+			log.Warn("DropIndex fail", zap.Error(err))
+			return merr.Status(err), nil
+		}
+		fieldName = field.GetName()
+	}
+
+	indexName := req.GetIndexName()
+	// INFO:: If the specified indexName and fieldID do not match, return drop index Successfully
+	indexes := s.meta.GetIndexesForField(req.CollectionID, indexName, req.GetFieldID())
 	if len(indexes) == 0 {
-		log.Info(fmt.Sprintf("there is no index on collection: %d with the index name: %s", req.CollectionID, req.IndexName))
+		log.Info(fmt.Sprintf("there is no index on collection: %d with the index name: %s and field name: %s", req.CollectionID, indexName, fieldName))
 		return merr.Success(), nil
 	}
 
 	if !req.GetDropAll() && len(indexes) > 1 {
-		log.Warn(msgAmbiguousIndexName())
-		err := merr.WrapErrIndexDuplicate(req.GetIndexName())
+		log.Warn(msgAmbiguousIndex())
+		err := merr.WrapErrIndexDuplicate(req.GetIndexName(), fieldName)
 		return merr.Status(err), nil
 	}
 	indexIDs := make([]UniqueID, 0)
@@ -628,13 +696,13 @@ func (s *Server) DropIndex(ctx context.Context, req *indexpb.DropIndexRequest) (
 		// drop collection index
 		err := s.meta.MarkIndexAsDeleted(req.GetCollectionID(), indexIDs)
 		if err != nil {
-			log.Warn("DropIndex fail", zap.String("indexName", req.IndexName), zap.Error(err))
+			log.Warn("DropIndex fail", zap.String("indexName", indexName), zap.Error(err))
 			return merr.Status(err), nil
 		}
 	}
 
 	log.Debug("DropIndex success", zap.Int64s("partitionIDs", req.GetPartitionIDs()),
-		zap.String("indexName", req.GetIndexName()), zap.Int64s("indexIDs", indexIDs))
+		zap.String("indexName", indexName), zap.Int64s("indexIDs", indexIDs))
 	return merr.Success(), nil
 }
 

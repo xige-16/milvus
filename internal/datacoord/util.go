@@ -18,6 +18,7 @@ package datacoord
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -31,6 +32,7 @@ import (
 	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/metrics"
 	"github.com/milvus-io/milvus/pkg/util/merr"
+	"github.com/milvus-io/milvus/pkg/util/typeutil"
 )
 
 // Response response interface for verification
@@ -71,9 +73,8 @@ func FilterInIndexedSegments(handler Handler, mt *meta, segments ...*SegmentInfo
 
 	segmentMap := make(map[int64]*SegmentInfo)
 	collectionSegments := make(map[int64][]int64)
-	// TODO(yah01): This can't handle the case of multiple vector fields exist,
-	// modify it if we support multiple vector fields.
-	vecFieldID := make(map[int64]int64)
+
+	vecFieldIDs := make(map[int64][]int64)
 	for _, segment := range segments {
 		collectionID := segment.GetCollectionID()
 		segmentMap[segment.GetID()] = segment
@@ -88,11 +89,8 @@ func FilterInIndexedSegments(handler Handler, mt *meta, segments ...*SegmentInfo
 			continue
 		}
 		for _, field := range coll.Schema.GetFields() {
-			if field.GetDataType() == schemapb.DataType_BinaryVector ||
-				field.GetDataType() == schemapb.DataType_FloatVector ||
-				field.GetDataType() == schemapb.DataType_Float16Vector {
-				vecFieldID[collection] = field.GetFieldID()
-				break
+			if typeutil.IsVectorType(field.GetDataType()) {
+				vecFieldIDs[collection] = append(vecFieldIDs[collection], field.GetFieldID())
 			}
 		}
 	}
@@ -102,8 +100,19 @@ func FilterInIndexedSegments(handler Handler, mt *meta, segments ...*SegmentInfo
 		if !isFlushState(segment.GetState()) && segment.GetState() != commonpb.SegmentState_Dropped {
 			continue
 		}
-		segmentState := mt.GetSegmentIndexStateOnField(segment.GetCollectionID(), segment.GetID(), vecFieldID[segment.GetCollectionID()])
-		if segmentState.state == commonpb.IndexState_Finished {
+
+		if len(vecFieldIDs[segment.GetCollectionID()]) == 0 {
+			continue
+		}
+
+		hasUnindexedVecField := false
+		for _, fieldID := range vecFieldIDs[segment.GetCollectionID()] {
+			segmentState := mt.GetSegmentIndexStateOnField(segment.GetCollectionID(), segment.GetID(), fieldID)
+			if segmentState.state != commonpb.IndexState_Finished {
+				hasUnindexedVecField = true
+			}
+		}
+		if !hasUnindexedVecField {
 			indexedSegments = append(indexedSegments, segment)
 		}
 	}
@@ -216,4 +225,21 @@ func mergeFieldBinlogs(currentBinlogs []*datapb.FieldBinlog, newBinlogs []*datap
 		}
 	}
 	return currentBinlogs
+}
+
+func getFieldByID(handler Handler, collectionID UniqueID, fieldID int64) (*schemapb.FieldSchema, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	coll, err := handler.GetCollection(ctx, collectionID)
+	cancel()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get collection %d", collectionID)
+	}
+
+	for _, field := range coll.Schema.GetFields() {
+		if field.GetFieldID() == fieldID {
+			return field, nil
+		}
+	}
+
+	return nil, fmt.Errorf("failed to get field %d", fieldID)
 }

@@ -51,7 +51,7 @@ func TestGetIndexStateTask_Execute(t *testing.T) {
 	dbName := funcutil.GenRandomStr()
 	collectionName := funcutil.GenRandomStr()
 	collectionID := UniqueID(1)
-	fieldName := funcutil.GenRandomStr()
+	fieldName := "FloatVectorField"
 	indexName := ""
 	ctx := context.Background()
 

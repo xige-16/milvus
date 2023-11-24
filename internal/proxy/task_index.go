@@ -280,25 +280,6 @@ func (cit *createIndexTask) parseIndexParams() error {
 	return nil
 }
 
-func (cit *createIndexTask) getIndexedField(ctx context.Context) (*schemapb.FieldSchema, error) {
-	schema, err := globalMetaCache.GetCollectionSchema(ctx, cit.req.GetDbName(), cit.req.GetCollectionName())
-	if err != nil {
-		log.Error("failed to get collection schema", zap.Error(err))
-		return nil, fmt.Errorf("failed to get collection schema: %s", err)
-	}
-	schemaHelper, err := typeutil.CreateSchemaHelper(schema)
-	if err != nil {
-		log.Error("failed to parse collection schema", zap.Error(err))
-		return nil, fmt.Errorf("failed to parse collection schema: %s", err)
-	}
-	field, err := schemaHelper.GetFieldFromName(cit.req.GetFieldName())
-	if err != nil {
-		log.Error("create index on non-exist field", zap.Error(err))
-		return nil, fmt.Errorf("cannot create index on non-exist field: %s", cit.req.GetFieldName())
-	}
-	return field, nil
-}
-
 func fillDimension(field *schemapb.FieldSchema, indexParams map[string]string) error {
 	vecDataTypes := []schemapb.DataType{
 		schemapb.DataType_FloatVector,
@@ -377,7 +358,7 @@ func (cit *createIndexTask) PreExecute(ctx context.Context) error {
 		return err
 	}
 
-	field, err := cit.getIndexedField(ctx)
+	field, err := getIndexedField(ctx, cit.req.GetDbName(), cit.req.GetCollectionName(), cit.req.GetFieldName())
 	if err != nil {
 		return err
 	}
@@ -502,7 +483,21 @@ func (dit *describeIndexTask) Execute(ctx context.Context) error {
 		return fmt.Errorf("failed to parse collection schema: %s", err)
 	}
 
-	resp, err := dit.datacoord.DescribeIndex(ctx, &indexpb.DescribeIndexRequest{CollectionID: dit.collectionID, IndexName: dit.IndexName, Timestamp: dit.Timestamp})
+	fieldID := common.InvalidFieldID
+	if len(dit.GetFieldName()) != 0 {
+		field, err := schemaHelper.GetFieldFromName(dit.GetFieldName())
+		if err != nil {
+			return err
+		}
+		fieldID = field.FieldID
+	}
+	resp, err := dit.datacoord.DescribeIndex(ctx, &indexpb.DescribeIndexRequest{
+		CollectionID: dit.collectionID,
+		FieldID:      fieldID,
+		FieldName:    dit.GetFieldName(),
+		IndexName:    dit.IndexName,
+		Timestamp:    dit.Timestamp,
+	})
 	if err != nil {
 		return err
 	}
@@ -511,7 +506,7 @@ func (dit *describeIndexTask) Execute(ctx context.Context) error {
 	dit.result.Status = resp.GetStatus()
 	err = merr.Error(resp.GetStatus())
 	if err != nil {
-		if errors.Is(err, merr.ErrIndexNotFound) && len(dit.GetIndexName()) == 0 {
+		if errors.Is(err, merr.ErrIndexNotFound) && len(dit.GetIndexName()) == 0 && len(dit.GetFieldName()) == 0 {
 			err = merr.WrapErrIndexNotFoundForCollection(dit.GetCollectionName())
 			dit.result.Status = merr.Status(err)
 		}
@@ -761,11 +756,21 @@ func (dit *dropIndexTask) Execute(ctx context.Context) error {
 	)
 
 	var err error
+	fieldID := common.InvalidFieldID
+	if len(dit.GetFieldName()) != 0 {
+		field, err := getIndexedField(ctx, dit.GetDbName(), dit.GetCollectionName(), dit.GetFieldName())
+		if err != nil {
+			return err
+		}
+		fieldID = field.FieldID
+	}
 	dit.result, err = dit.dataCoord.DropIndex(ctx, &indexpb.DropIndexRequest{
 		CollectionID: dit.collectionID,
 		PartitionIDs: nil,
-		IndexName:    dit.IndexName,
+		IndexName:    dit.GetIndexName(),
 		DropAll:      false,
+		FieldID:      fieldID,
+		FieldName:    dit.GetFieldName(),
 	})
 	if err != nil {
 		ctxLog.Warn("drop index failed", zap.Error(err))
@@ -857,9 +862,20 @@ func (gibpt *getIndexBuildProgressTask) Execute(ctx context.Context) error {
 		gibpt.IndexName = Params.CommonCfg.DefaultIndexName.GetValue()
 	}
 
+	fieldID := common.InvalidFieldID
+	if len(gibpt.GetFieldName()) != 0 {
+		field, err := getIndexedField(ctx, gibpt.GetDbName(), gibpt.GetCollectionName(), gibpt.GetFieldName())
+		if err != nil {
+			return err
+		}
+		fieldID = field.FieldID
+	}
+
 	resp, err := gibpt.dataCoord.GetIndexBuildProgress(ctx, &indexpb.GetIndexBuildProgressRequest{
 		CollectionID: collectionID,
 		IndexName:    gibpt.IndexName,
+		FieldID:      fieldID,
+		FieldName:    gibpt.GetFieldName(),
 	})
 	if err != nil {
 		return err
@@ -944,9 +960,20 @@ func (gist *getIndexStateTask) Execute(ctx context.Context) error {
 		return err
 	}
 
+	fieldID := common.InvalidFieldID
+	if len(gist.GetFieldName()) != 0 {
+		field, err := getIndexedField(ctx, gist.GetDbName(), gist.GetCollectionName(), gist.GetFieldName())
+		if err != nil {
+			return err
+		}
+		fieldID = field.FieldID
+	}
+
 	state, err := gist.dataCoord.GetIndexState(ctx, &indexpb.GetIndexStateRequest{
 		CollectionID: collectionID,
 		IndexName:    gist.IndexName,
+		FieldID:      fieldID,
+		FieldName:    gist.GetFieldName(),
 	})
 	if err != nil {
 		return err

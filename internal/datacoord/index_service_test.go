@@ -315,7 +315,7 @@ func TestServer_GetIndexState(t *testing.T) {
 		}},
 	}
 
-	t.Run("index state is node", func(t *testing.T) {
+	t.Run("index state is none", func(t *testing.T) {
 		resp, err := s.GetIndexState(ctx, req)
 		assert.NoError(t, err)
 		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetStatus().GetErrorCode())
@@ -326,7 +326,7 @@ func TestServer_GetIndexState(t *testing.T) {
 		s.meta.indexes[collID][indexID+1] = &model.Index{
 			TenantID:        "",
 			CollectionID:    collID,
-			FieldID:         fieldID,
+			FieldID:         fieldID + 1,
 			IndexID:         indexID + 1,
 			IndexName:       "default_idx_1",
 			IsDeleted:       false,
@@ -339,6 +339,16 @@ func TestServer_GetIndexState(t *testing.T) {
 		resp, err := s.GetIndexState(ctx, req)
 		assert.NoError(t, err)
 		assert.Equal(t, commonpb.ErrorCode_UnexpectedError, resp.GetStatus().GetErrorCode())
+	})
+
+	t.Run("find index with field", func(t *testing.T) {
+		resp, err := s.GetIndexState(ctx, &indexpb.GetIndexStateRequest{
+			CollectionID: collID,
+			FieldID:      fieldID,
+			FieldName:    "vec",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetStatus().GetErrorCode())
 	})
 }
 
@@ -661,6 +671,16 @@ func TestServer_GetIndexBuildProgress(t *testing.T) {
 		resp, err := s.GetIndexBuildProgress(ctx, req)
 		assert.NoError(t, err)
 		assert.Equal(t, commonpb.ErrorCode_UnexpectedError, resp.GetStatus().GetErrorCode())
+	})
+
+	t.Run("find index with field", func(t *testing.T) {
+		resp, err := s.GetIndexBuildProgress(ctx, &indexpb.GetIndexBuildProgressRequest{
+			CollectionID: collID,
+			FieldID:      fieldID,
+			FieldName:    "vec",
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetStatus().GetErrorCode())
 	})
 }
 
@@ -1008,6 +1028,18 @@ func TestServer_DescribeIndex(t *testing.T) {
 		assert.NoError(t, err)
 		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetStatus().GetErrorCode())
 		assert.Equal(t, 5, len(resp.GetIndexInfos()))
+	})
+
+	t.Run("describe index with field", func(t *testing.T) {
+		resp, err := s.DescribeIndex(ctx, &indexpb.DescribeIndexRequest{
+			CollectionID: collID,
+			FieldID:      fieldID,
+			FieldName:    "vec",
+			Timestamp:    createTS,
+		})
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetStatus().GetErrorCode())
+		assert.Equal(t, 1, len(resp.GetIndexInfos()))
 	})
 
 	t.Run("describe after drop index", func(t *testing.T) {
@@ -1393,7 +1425,7 @@ func TestServer_DropIndex(t *testing.T) {
 					indexID + 3: {
 						TenantID:        "",
 						CollectionID:    collID,
-						FieldID:         fieldID + 3,
+						FieldID:         fieldID,
 						IndexID:         indexID + 3,
 						IndexName:       indexName + "_3",
 						IsDeleted:       false,
@@ -1407,7 +1439,7 @@ func TestServer_DropIndex(t *testing.T) {
 					indexID + 4: {
 						TenantID:        "",
 						CollectionID:    collID,
-						FieldID:         fieldID + 4,
+						FieldID:         fieldID,
 						IndexID:         indexID + 4,
 						IndexName:       indexName + "_4",
 						IsDeleted:       false,
@@ -1466,7 +1498,36 @@ func TestServer_DropIndex(t *testing.T) {
 		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetErrorCode())
 	})
 
-	t.Run("drop one without indexName", func(t *testing.T) {
+	t.Run("drop one with fieldID", func(t *testing.T) {
+		req = &indexpb.DropIndexRequest{
+			CollectionID: collID,
+			PartitionIDs: nil,
+			IndexName:    "",
+			DropAll:      false,
+			FieldID:      fieldID + 2, // index on field (fieldID+1) has been delete, dropIndex(vec1) also return success
+			FieldName:    "vec",
+		}
+		resp, err := s.DropIndex(ctx, req)
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.ErrorCode_Success, resp.GetErrorCode())
+	})
+
+	t.Run("drop with multiple index on field", func(t *testing.T) {
+		req = &indexpb.DropIndexRequest{
+			CollectionID: collID,
+			PartitionIDs: nil,
+			IndexName:    "",
+			DropAll:      false,
+			FieldID:      fieldID, // fieldID has 3 indexes, one has been dropped, two remaining
+			FieldName:    "vec",
+		}
+		resp, err := s.DropIndex(ctx, req)
+		assert.NoError(t, err)
+		assert.Equal(t, commonpb.ErrorCode_UnexpectedError, resp.GetErrorCode())
+		assert.Equal(t, resp.GetCode(), int32(702))
+	})
+
+	t.Run("drop one without indexName and fieldID", func(t *testing.T) {
 		req = &indexpb.DropIndexRequest{
 			CollectionID: collID,
 			PartitionIDs: nil,
@@ -1476,6 +1537,7 @@ func TestServer_DropIndex(t *testing.T) {
 		resp, err := s.DropIndex(ctx, req)
 		assert.NoError(t, err)
 		assert.Equal(t, commonpb.ErrorCode_UnexpectedError, resp.GetErrorCode())
+		assert.Equal(t, resp.GetCode(), int32(702))
 	})
 
 	t.Run("drop all indexes", func(t *testing.T) {
