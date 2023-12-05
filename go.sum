@@ -868,6 +868,8 @@ github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2 h1:eY9dn8+vbi4tKz5
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xiaofan-luan/pulsarctl v0.5.1 h1:2V+IWFarElzcln5WBbU3VNu3zC8Q7RS6rMpVs9oUfLg=
 github.com/xiaofan-luan/pulsarctl v0.5.1/go.mod h1:kfeG1rRglz+QDSxyBB21H2Q4hMnzfirW32bs8yx/Q0Q=
+github.com/xige-16/milvus-proto/go-api/v2 v2.0.0-20231205061403-0e4cf5670266 h1:82Qv4XwanyjgCZJWVr5AF0AmCibJLz89kjJumdC4jUo=
+github.com/xige-16/milvus-proto/go-api/v2 v2.0.0-20231205061403-0e4cf5670266/go.mod h1:1OIl0v5PQeNxIJhCvY+K55CBUOYDZevw9g9380u1Wek=
 github.com/xordataexchange/crypt v0.0.3-0.20170626215501-b2862e3d0a77/go.mod h1:aYKd//L2LvnjZzWKhF00oedf4jCCReLcmhLdhm1A27Q=
 github.com/yalp/jsonpath v0.0.0-20180802001716-5cc68e5049a0/go.mod h1:/LWChgwKmvncFJFHJ7Gvn9wZArjbV5/FppcK2fKk/tI=
 github.com/yudai/gojsondiff v1.0.0/go.mod h1:AY32+k2cwILAkW1fbgxQ5mUmMiZFgLIV+FBNExI05xg=
