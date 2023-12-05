@@ -447,6 +447,12 @@ func (node *QueryNode) LoadSegments(ctx context.Context, req *querypb.LoadSegmen
 		return merr.Status(err), nil
 	}
 
+	// check index
+	if len(req.GetIndexInfoList()) == 0 {
+		err := merr.WrapErrIndexNotFoundForCollection(req.GetSchema().GetName())
+		return merr.Status(err), nil
+	}
+
 	// Delegates request to workers
 	if req.GetNeedTransfer() {
 		delegator, ok := node.delegators.Get(segment.GetInsertChannel())
@@ -761,6 +767,7 @@ func (node *QueryNode) Search(ctx context.Context, req *querypb.SearchRequest) (
 		zap.Int64("collectionID", req.GetReq().GetCollectionID()),
 		zap.Strings("channels", req.GetDmlChannels()),
 		zap.Bool("fromShardLeader", req.GetFromShardLeader()),
+		zap.Int64("nq", req.GetReq().GetNq()),
 	)
 
 	log.Debug("Received SearchRequest",
@@ -784,19 +791,18 @@ func (node *QueryNode) Search(ctx context.Context, req *querypb.SearchRequest) (
 		}, nil
 	}
 
-	failRet := &internalpb.SearchResults{
+	resp := &internalpb.SearchResults{
 		Status: merr.Success(),
 	}
 	collection := node.manager.Collection.Get(req.GetReq().GetCollectionID())
 	if collection == nil {
-		failRet.Status = merr.Status(merr.WrapErrCollectionNotFound(req.GetReq().GetCollectionID()))
-		return failRet, nil
+		resp.Status = merr.Status(merr.WrapErrCollectionNotFound(req.GetReq().GetCollectionID()))
+		return resp, nil
 	}
 
-	var toReduceResults []*internalpb.SearchResults
-	var mu sync.Mutex
+	toReduceResults := make([]*internalpb.SearchResults, len(req.GetDmlChannels()))
 	runningGp, runningCtx := errgroup.WithContext(ctx)
-	for _, ch := range req.GetDmlChannels() {
+	for i, ch := range req.GetDmlChannels() {
 		ch := ch
 		req := &querypb.SearchRequest{
 			Req:             req.Req,
@@ -807,31 +813,30 @@ func (node *QueryNode) Search(ctx context.Context, req *querypb.SearchRequest) (
 			TotalChannelNum: req.TotalChannelNum,
 		}
 
+		i := i
 		runningGp.Go(func() error {
 			ret, err := node.searchChannel(runningCtx, req, ch)
-			mu.Lock()
-			defer mu.Unlock()
 			if err != nil {
-				failRet.Status = merr.Status(err)
 				return err
 			}
-			if ret.GetStatus().GetErrorCode() != commonpb.ErrorCode_Success {
-				return merr.Error(failRet.GetStatus())
+			if err := merr.Error(ret.GetStatus()); err != nil {
+				return err
 			}
-			toReduceResults = append(toReduceResults, ret)
+			toReduceResults[i] = ret
 			return nil
 		})
 	}
 	if err := runningGp.Wait(); err != nil {
-		return failRet, nil
+		resp.Status = merr.Status(err)
+		return resp, nil
 	}
 
 	tr.RecordSpan()
 	result, err := segments.ReduceSearchResults(ctx, toReduceResults, req.Req.GetNq(), req.Req.GetTopk(), req.Req.GetMetricType())
 	if err != nil {
 		log.Warn("failed to reduce search results", zap.Error(err))
-		failRet.Status = merr.Status(err)
-		return failRet, nil
+		resp.Status = merr.Status(err)
+		return resp, nil
 	}
 	reduceLatency := tr.RecordSpan()
 	metrics.QueryNodeReduceLatency.WithLabelValues(fmt.Sprint(paramtable.GetNodeID()), metrics.SearchLabel, metrics.ReduceShards).
@@ -1286,6 +1291,7 @@ func (node *QueryNode) GetDataDistribution(ctx context.Context, req *querypb.Get
 			}
 		}
 
+		numOfGrowingRows := int64(0)
 		growingSegments := make(map[int64]*msgpb.MsgPosition)
 		for _, entry := range growing {
 			segment := node.manager.Segment.GetWithType(entry.SegmentID, segments.SegmentTypeGrowing)
@@ -1295,14 +1301,16 @@ func (node *QueryNode) GetDataDistribution(ctx context.Context, req *querypb.Get
 				continue
 			}
 			growingSegments[entry.SegmentID] = segment.StartPosition()
+			numOfGrowingRows += segment.InsertCount()
 		}
 
 		leaderViews = append(leaderViews, &querypb.LeaderView{
-			Collection:      delegator.Collection(),
-			Channel:         key,
-			SegmentDist:     sealedSegments,
-			GrowingSegments: growingSegments,
-			TargetVersion:   delegator.GetTargetVersion(),
+			Collection:       delegator.Collection(),
+			Channel:          key,
+			SegmentDist:      sealedSegments,
+			GrowingSegments:  growingSegments,
+			TargetVersion:    delegator.GetTargetVersion(),
+			NumOfGrowingRows: numOfGrowingRows,
 		})
 		return true
 	})
@@ -1363,15 +1371,16 @@ func (node *QueryNode) SyncDistribution(ctx context.Context, req *querypb.SyncDi
 						commonpbutil.WithMsgType(commonpb.MsgType_LoadSegments),
 						commonpbutil.WithMsgID(req.Base.GetMsgID()),
 					),
-					Infos:        []*querypb.SegmentLoadInfo{action.GetInfo()},
-					Schema:       req.GetSchema(),
-					LoadMeta:     req.GetLoadMeta(),
-					CollectionID: req.GetCollectionID(),
-					ReplicaID:    req.GetReplicaID(),
-					DstNodeID:    action.GetNodeID(),
-					Version:      action.GetVersion(),
-					NeedTransfer: false,
-					LoadScope:    querypb.LoadScope_Delta,
+					Infos:         []*querypb.SegmentLoadInfo{action.GetInfo()},
+					Schema:        req.GetSchema(),
+					LoadMeta:      req.GetLoadMeta(),
+					CollectionID:  req.GetCollectionID(),
+					ReplicaID:     req.GetReplicaID(),
+					DstNodeID:     action.GetNodeID(),
+					Version:       action.GetVersion(),
+					NeedTransfer:  false,
+					LoadScope:     querypb.LoadScope_Delta,
+					IndexInfoList: req.GetIndexInfoList(),
 				})
 			})
 		case querypb.SyncType_UpdateVersion:

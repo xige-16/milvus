@@ -85,7 +85,7 @@ type DataNode struct {
 	cancel           context.CancelFunc
 	Role             string
 	stateCode        atomic.Value // commonpb.StateCode_Initializing
-	flowgraphManager *flowgraphManager
+	flowgraphManager FlowgraphManager
 	eventManagerMap  *typeutil.ConcurrentMap[string, *channelEventManager]
 
 	syncMgr            syncmgr.SyncManager
@@ -282,6 +282,8 @@ func (node *DataNode) Init() error {
 		node.syncMgr = syncMgr
 
 		node.writeBufferManager = writebuffer.NewManager(syncMgr)
+
+		log.Info("init datanode done", zap.Int64("nodeID", paramtable.GetNodeID()), zap.String("Address", node.address))
 	})
 	return initError
 }
@@ -308,7 +310,7 @@ func (node *DataNode) handleChannelEvt(evt *clientv3.Event) {
 // tryToReleaseFlowgraph tries to release a flowgraph
 func (node *DataNode) tryToReleaseFlowgraph(vChanName string) {
 	log.Info("try to release flowgraph", zap.String("vChanName", vChanName))
-	node.flowgraphManager.release(vChanName)
+	node.flowgraphManager.RemoveFlowgraph(vChanName)
 }
 
 // BackGroundGC runs in background to release datanode resources
@@ -354,7 +356,8 @@ func (node *DataNode) Start() error {
 			}*/
 
 		connectEtcdFn := func() error {
-			etcdKV := etcdkv.NewEtcdKV(node.etcdCli, Params.EtcdCfg.MetaRootPath.GetValue())
+			etcdKV := etcdkv.NewEtcdKV(node.etcdCli, Params.EtcdCfg.MetaRootPath.GetValue(),
+				etcdkv.WithRequestTimeout(paramtable.Get().ServiceParam.EtcdCfg.RequestTimeout.GetAsDuration(time.Millisecond)))
 			node.watchKv = etcdKV
 			return nil
 		}
@@ -378,9 +381,6 @@ func (node *DataNode) Start() error {
 		node.stopWaiter.Add(1)
 		// Start node watch node
 		go node.StartWatchChannels(node.ctx)
-
-		node.stopWaiter.Add(1)
-		go node.flowgraphManager.start(&node.stopWaiter)
 
 		node.UpdateStateCode(commonpb.StateCode_Healthy)
 	})
@@ -414,7 +414,6 @@ func (node *DataNode) Stop() error {
 	node.stopOnce.Do(func() {
 		// https://github.com/milvus-io/milvus/issues/12282
 		node.UpdateStateCode(commonpb.StateCode_Abnormal)
-		node.flowgraphManager.close()
 		// Delay the cancellation of ctx to ensure that the session is automatically recycled after closed the flow graph
 		node.cancel()
 

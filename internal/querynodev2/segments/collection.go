@@ -73,7 +73,7 @@ func (m *collectionManager) PutOrRef(collectionID int64, schema *schemapb.Collec
 
 	if collection, ok := m.collections[collectionID]; ok {
 		// the schema may be changed even the collection is loaded
-		collection.schema = schema
+		collection.schema.Store(schema)
 		collection.Ref(1)
 		return
 	}
@@ -121,8 +121,8 @@ type Collection struct {
 	partitions    *typeutil.ConcurrentSet[int64]
 	loadType      querypb.LoadType
 	metricType    atomic.String // deprecated
-	schema        *schemapb.CollectionSchema
 	metricTypes   *typeutil.ConcurrentMap[int64, string]
+	schema        atomic.Pointer[schemapb.CollectionSchema]
 
 	refCount *atomic.Uint32
 }
@@ -134,7 +134,7 @@ func (c *Collection) ID() int64 {
 
 // Schema returns the schema of collection
 func (c *Collection) Schema() *schemapb.CollectionSchema {
-	return c.schema
+	return c.schema.Load()
 }
 
 // getPartitionIDs return partitionIDs of collection
@@ -219,15 +219,17 @@ func NewCollection(collectionID int64, schema *schemapb.CollectionSchema, indexM
 		C.SetIndexMeta(collection, unsafe.Pointer(&indexMetaBlob[0]), (C.int64_t)(len(indexMetaBlob)))
 	}
 
-	return &Collection{
+	coll := &Collection{
 		collectionPtr: collection,
 		id:            collectionID,
-		schema:        schema,
 		partitions:    typeutil.NewConcurrentSet[int64](),
 		loadType:      loadType,
 		refCount:      atomic.NewUint32(0),
 		metricTypes:   typeutil.NewConcurrentMap[int64, string](),
 	}
+	coll.schema.Store(schema)
+
+	return coll
 }
 
 func NewCollectionWithoutSchema(collectionID int64, loadType querypb.LoadType) *Collection {

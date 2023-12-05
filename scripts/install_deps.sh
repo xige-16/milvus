@@ -46,9 +46,9 @@ function install_linux_deps() {
   fi
   # install cmake
   cmake_version=$(echo "$(cmake --version | head -1)" | grep -o '[0-9][\.][0-9]*')
-  if [ ! $cmake_version ] || [ `expr $cmake_version \>= 3.24` -eq 0 ]; then
-    echo "cmake version $cmake_version is less than 3.24, wait to installing ..."
-    wget -qO- "https://cmake.org/files/v3.24/cmake-3.24.0-linux-x86_64.tar.gz" | sudo tar --strip-components=1 -xz -C /usr/local
+  if [ ! $cmake_version ] || [ `expr $cmake_version \>= 3.26` -eq 0 ]; then
+    echo "cmake version $cmake_version is less than 3.26, wait to installing ..."
+    wget -qO- "https://cmake.org/files/v3.26/cmake-3.26.5-linux-x86_64.tar.gz" | sudo tar --strip-components=1 -xz -C /usr/local
   else
     echo "cmake version is $cmake_version"
   fi
@@ -56,7 +56,7 @@ function install_linux_deps() {
 
 function install_mac_deps() {
   sudo xcode-select --install > /dev/null 2>&1
-  brew install libomp ninja cmake llvm@15 ccache grep pkg-config zip unzip
+  brew install boost libomp ninja cmake llvm@15 ccache grep pkg-config zip unzip tbb
   export PATH="/usr/local/opt/grep/libexec/gnubin:$PATH"
   brew update && brew upgrade && brew cleanup
 
@@ -66,6 +66,8 @@ function install_mac_deps() {
     brew install openssl
     brew install librdkafka
   fi
+
+  sudo ln -s "$(brew --prefix llvm@15)" "/usr/local/opt/llvm"
 }
 
 if ! command -v go &> /dev/null

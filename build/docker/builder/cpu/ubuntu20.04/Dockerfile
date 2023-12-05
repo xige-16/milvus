@@ -13,10 +13,8 @@ FROM ubuntu:focal-20220426
 
 ARG TARGETARCH
 
-RUN if [ "$TARGETARCH" = "arm64" ]; then apt-get update && apt-get install -y ninja-build; fi
-
 RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-certificates gnupg2 \
-    g++ gcc gdb gdbserver git make ccache libssl-dev zlib1g-dev zip unzip \
+    g++ gcc gdb gdbserver ninja-build git make ccache libssl-dev zlib1g-dev zip unzip \
     clang-format-10 clang-tidy-10 lcov libtool m4 autoconf automake python3 python3-pip \
     pkg-config uuid-dev libaio-dev  && \
     apt-get remove --purge -y && \
@@ -26,6 +24,16 @@ RUN pip3 install conan==1.61.0
 
 RUN echo "target arch $TARGETARCH"
 RUN wget -qO- "https://cmake.org/files/v3.27/cmake-3.27.5-linux-`uname -m`.tar.gz" | tar --strip-components=1 -xz -C /usr/local
+
+RUN mkdir /opt/vcpkg &&  \
+    wget -qO- vcpkg.tar.gz https://github.com/microsoft/vcpkg/archive/master.tar.gz | tar --strip-components=1 -xz -C /opt/vcpkg && \
+    rm -rf vcpkg.tar.gz
+
+ENV VCPKG_FORCE_SYSTEM_BINARIES 1
+
+RUN /opt/vcpkg/bootstrap-vcpkg.sh -disableMetrics && ln -s /opt/vcpkg/vcpkg /usr/local/bin/vcpkg && vcpkg version
+
+RUN vcpkg install azure-identity-cpp azure-storage-blobs-cpp gtest
 
 # Install Go
 ENV GOPATH /go
@@ -43,6 +51,13 @@ RUN mkdir -p /home/milvus/.vscode-server/extensions \
     && chmod -R 777 /home/milvus
 
 COPY --chown=0:0 build/docker/builder/entrypoint.sh /
+
+RUN curl https://sh.rustup.rs -sSf | \
+    sh -s -- --default-toolchain stable -y
+
+ENV PATH=/root/.cargo/bin:$PATH
+
+RUN rustup install 1.73 && rustup default 1.73
 
 ENTRYPOINT [ "/entrypoint.sh" ]
 CMD ["tail", "-f", "/dev/null"]

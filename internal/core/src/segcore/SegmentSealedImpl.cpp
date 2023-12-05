@@ -100,7 +100,6 @@ SegmentSealedImpl::LoadVecIndex(const LoadIndexInfo& info) {
                        ") than other column's row count (" +
                        std::to_string(num_rows_.value()) + ")");
     }
-    AssertInfo(!vector_indexings_.is_ready(field_id), "vec index is not ready");
     if (get_bit(field_data_ready_bitset_, field_id)) {
         fields_.erase(field_id);
         set_bit(field_data_ready_bitset_, field_id, false);
@@ -781,8 +780,7 @@ SegmentSealedImpl::get_vector(FieldId field_id,
         }
 
         // assign to data array
-        auto dim = field_meta.get_dim();
-        auto row_bytes = field_meta.is_vector() ? dim * 4 : dim / 8;
+        auto row_bytes = field_meta.get_sizeof();
         auto buf = std::vector<char>(count * row_bytes);
         for (auto i = 0; i < count; i++) {
             AssertInfo(id_to_data_path.count(ids[i]) != 0, "id not found");

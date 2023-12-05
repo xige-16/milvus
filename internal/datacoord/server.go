@@ -34,6 +34,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
+	"github.com/milvus-io/milvus/internal/datacoord/broker"
 	datanodeclient "github.com/milvus-io/milvus/internal/distributed/datanode/client"
 	indexnodeclient "github.com/milvus-io/milvus/internal/distributed/indexnode/client"
 	rootcoordclient "github.com/milvus-io/milvus/internal/distributed/rootcoord/client"
@@ -152,7 +153,7 @@ type Server struct {
 	indexEngineVersionManager IndexEngineVersionManager
 
 	// manage ways that data coord access other coord
-	broker Broker
+	broker broker.Broker
 }
 
 // ServerHelper datacoord server injection helper
@@ -330,13 +331,15 @@ func (s *Server) initDataCoord() error {
 	if err = s.initRootCoordClient(); err != nil {
 		return err
 	}
+	log.Info("init rootcoord client done")
 
-	s.broker = NewCoordinatorBroker(s.rootCoordClient)
+	s.broker = broker.NewCoordinatorBroker(s.rootCoordClient)
 
 	storageCli, err := s.newChunkManagerFactory()
 	if err != nil {
 		return err
 	}
+	log.Info("init chunk manager factory done")
 
 	if err = s.initMeta(storageCli); err != nil {
 		return err
@@ -347,6 +350,7 @@ func (s *Server) initDataCoord() error {
 	if err = s.initCluster(); err != nil {
 		return err
 	}
+	log.Info("init datanode cluster done")
 
 	s.allocator = newRootCoordAllocator(s.rootCoordClient)
 
@@ -355,21 +359,25 @@ func (s *Server) initDataCoord() error {
 	if err = s.initServiceDiscovery(); err != nil {
 		return err
 	}
+	log.Info("init service discovery done")
 
 	if Params.DataCoordCfg.EnableCompaction.GetAsBool() {
 		s.createCompactionHandler()
 		s.createCompactionTrigger()
+		log.Info("init compaction scheduler done")
 	}
 
 	if err = s.initSegmentManager(); err != nil {
 		return err
 	}
+	log.Info("init segment manager done")
 
 	s.initGarbageCollection(storageCli)
 	s.initIndexBuilder(storageCli)
 
 	s.serverLoopCtx, s.serverLoopCancel = context.WithCancel(s.ctx)
 
+	log.Info("init datacoord done", zap.Int64("nodeID", paramtable.GetNodeID()), zap.String("Address", s.address))
 	return nil
 }
 
@@ -553,16 +561,19 @@ func (s *Server) initMeta(chunkManager storage.ChunkManager) error {
 	if s.meta != nil {
 		return nil
 	}
-	s.watchClient = etcdkv.NewEtcdKV(s.etcdCli, Params.EtcdCfg.MetaRootPath.GetValue())
+	s.watchClient = etcdkv.NewEtcdKV(s.etcdCli, Params.EtcdCfg.MetaRootPath.GetValue(),
+		etcdkv.WithRequestTimeout(paramtable.Get().ServiceParam.EtcdCfg.RequestTimeout.GetAsDuration(time.Millisecond)))
 	metaType := Params.MetaStoreCfg.MetaStoreType.GetValue()
 	log.Info("data coordinator connecting to metadata store", zap.String("metaType", metaType))
 	metaRootPath := ""
 	if metaType == util.MetaStoreTypeTiKV {
 		metaRootPath = Params.TiKVCfg.MetaRootPath.GetValue()
-		s.kv = tikv.NewTiKV(s.tikvCli, metaRootPath)
+		s.kv = tikv.NewTiKV(s.tikvCli, metaRootPath,
+			tikv.WithRequestTimeout(paramtable.Get().ServiceParam.TiKVCfg.RequestTimeout.GetAsDuration(time.Millisecond)))
 	} else if metaType == util.MetaStoreTypeEtcd {
 		metaRootPath = Params.EtcdCfg.MetaRootPath.GetValue()
-		s.kv = etcdkv.NewEtcdKV(s.etcdCli, metaRootPath)
+		s.kv = etcdkv.NewEtcdKV(s.etcdCli, metaRootPath,
+			etcdkv.WithRequestTimeout(paramtable.Get().ServiceParam.EtcdCfg.RequestTimeout.GetAsDuration(time.Millisecond)))
 	} else {
 		return retry.Unrecoverable(fmt.Errorf("not supported meta store: %s", metaType))
 	}

@@ -17,9 +17,9 @@ type bfWriteBuffer struct {
 	metacache metacache.MetaCache
 }
 
-func NewBFWriteBuffer(channel string, metacache metacache.MetaCache, syncMgr syncmgr.SyncManager, option *writeBufferOption) (WriteBuffer, error) {
+func NewBFWriteBuffer(channel string, metacache metacache.MetaCache, storageV2Cache *metacache.StorageV2Cache, syncMgr syncmgr.SyncManager, option *writeBufferOption) (WriteBuffer, error) {
 	return &bfWriteBuffer{
-		writeBufferBase: newWriteBufferBase(channel, metacache, syncMgr, option),
+		writeBufferBase: newWriteBufferBase(channel, metacache, storageV2Cache, syncMgr, option),
 		syncMgr:         syncMgr,
 	}, nil
 }
@@ -53,6 +53,9 @@ func (wb *bfWriteBuffer) BufferData(insertMsgs []*msgstream.InsertMsg, deleteMsg
 		segments := wb.metaCache.GetSegmentsBy(metacache.WithPartitionID(delMsg.PartitionID),
 			metacache.WithSegmentState(commonpb.SegmentState_Growing, commonpb.SegmentState_Flushing, commonpb.SegmentState_Flushed))
 		for _, segment := range segments {
+			if segment.CompactTo() != 0 {
+				continue
+			}
 			var deletePks []storage.PrimaryKey
 			var deleteTss []typeutil.Timestamp
 			for idx, pk := range pks {
@@ -71,5 +74,7 @@ func (wb *bfWriteBuffer) BufferData(insertMsgs []*msgstream.InsertMsg, deleteMsg
 	wb.checkpoint = endPos
 
 	_ = wb.triggerSync()
+
+	wb.cleanupCompactedSegments()
 	return nil
 }

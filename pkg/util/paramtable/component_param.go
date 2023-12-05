@@ -218,8 +218,10 @@ type commonConfig struct {
 	LockSlowLogInfoThreshold ParamItem `refreshable:"true"`
 	LockSlowLogWarnThreshold ParamItem `refreshable:"true"`
 
-	TTMsgEnabled ParamItem `refreshable:"true"`
-	TraceLogMode ParamItem `refreshable:"true"`
+	StorageScheme   ParamItem `refreshable:"false"`
+	EnableStorageV2 ParamItem `refreshable:"false"`
+	TTMsgEnabled    ParamItem `refreshable:"true"`
+	TraceLogMode    ParamItem `refreshable:"true"`
 }
 
 func (p *commonConfig) init(base *BaseTable) {
@@ -235,8 +237,14 @@ func (p *commonConfig) init(base *BaseTable) {
 	}
 	p.ClusterPrefix.Init(base.mgr)
 
+	pulsarPartitionKeyword := "-partition-"
 	chanNamePrefix := func(prefix string) string {
-		return strings.Join([]string{p.ClusterPrefix.GetValue(), prefix}, "-")
+		str := strings.Join([]string{p.ClusterPrefix.GetValue(), prefix}, "-")
+		if strings.Contains(str, pulsarPartitionKeyword) {
+			// there is a bug in pulsar client go, please refer to https://github.com/milvus-io/milvus/issues/28675
+			panic("channel name can not contains '-partition-'")
+		}
+		return str
 	}
 
 	// --- rootcoord ---
@@ -481,8 +489,8 @@ This configuration is only used by querynode and indexnode, it selects CPU instr
 	p.StorageType = ParamItem{
 		Key:          "common.storageType",
 		Version:      "2.0.0",
-		DefaultValue: "minio",
-		Doc:          "please adjust in embedded Milvus: local, available values are [local, minio, remote, opendal]]",
+		DefaultValue: "remote",
+		Doc:          "please adjust in embedded Milvus: local, available values are [local, remote, opendal], value minio is deprecated, use remote instead",
 		Export:       true,
 	}
 	p.StorageType.Init(base.mgr)
@@ -626,6 +634,20 @@ like the old password verification when updating the credential`,
 		Export:       true,
 	}
 	p.LockSlowLogWarnThreshold.Init(base.mgr)
+
+	p.EnableStorageV2 = ParamItem{
+		Key:          "common.storage.enablev2",
+		Version:      "2.3.1",
+		DefaultValue: "false",
+	}
+	p.EnableStorageV2.Init(base.mgr)
+
+	p.StorageScheme = ParamItem{
+		Key:          "common.storage.scheme",
+		Version:      "2.3.4",
+		DefaultValue: "s3",
+	}
+	p.StorageScheme.Init(base.mgr)
 
 	p.TTMsgEnabled = ParamItem{
 		Key:          "common.ttMsgEnabled",
@@ -865,16 +887,17 @@ func (p *rootCoordConfig) init(base *BaseTable) {
 // /////////////////////////////////////////////////////////////////////////////
 // --- proxy ---
 type AccessLogConfig struct {
-	Enable        ParamItem `refreshable:"false"`
-	MinioEnable   ParamItem `refreshable:"false"`
-	LocalPath     ParamItem `refreshable:"false"`
-	Filename      ParamItem `refreshable:"false"`
-	MaxSize       ParamItem `refreshable:"false"`
-	CacheSize     ParamItem `refreshable:"false"`
-	RotatedTime   ParamItem `refreshable:"false"`
-	MaxBackups    ParamItem `refreshable:"false"`
-	RemotePath    ParamItem `refreshable:"false"`
-	RemoteMaxTime ParamItem `refreshable:"false"`
+	Enable        ParamItem  `refreshable:"false"`
+	MinioEnable   ParamItem  `refreshable:"false"`
+	LocalPath     ParamItem  `refreshable:"false"`
+	Filename      ParamItem  `refreshable:"false"`
+	MaxSize       ParamItem  `refreshable:"false"`
+	CacheSize     ParamItem  `refreshable:"false"`
+	RotatedTime   ParamItem  `refreshable:"false"`
+	MaxBackups    ParamItem  `refreshable:"false"`
+	RemotePath    ParamItem  `refreshable:"false"`
+	RemoteMaxTime ParamItem  `refreshable:"false"`
+	Formatter     ParamGroup `refreshable:"false"`
 }
 
 type proxyConfig struct {
@@ -895,13 +918,14 @@ type proxyConfig struct {
 	MaxUserNum                   ParamItem `refreshable:"true"`
 	MaxRoleNum                   ParamItem `refreshable:"true"`
 	MaxTaskNum                   ParamItem `refreshable:"false"`
-	AccessLog                    AccessLogConfig
 	ShardLeaderCacheInterval     ParamItem `refreshable:"false"`
 	ReplicaSelectionPolicy       ParamItem `refreshable:"false"`
 	CheckQueryNodeHealthInterval ParamItem `refreshable:"false"`
 	CostMetricsExpireTime        ParamItem `refreshable:"true"`
 	RetryTimesOnReplica          ParamItem `refreshable:"true"`
 	RetryTimesOnHealthCheck      ParamItem `refreshable:"true"`
+
+	AccessLog AccessLogConfig
 }
 
 func (p *proxyConfig) init(base *BaseTable) {
@@ -1084,7 +1108,7 @@ please adjust in embedded Milvus: false`,
 	p.AccessLog.MaxSize.Init(base.mgr)
 
 	p.AccessLog.CacheSize = ParamItem{
-		Key:          "proxy.accessLog.maxSize",
+		Key:          "proxy.accessLog.cacheSize",
 		Version:      "2.3.2",
 		DefaultValue: "10240",
 		Doc:          "Size of log of memory cache, in B",
@@ -1118,10 +1142,16 @@ please adjust in embedded Milvus: false`,
 	p.AccessLog.RemoteMaxTime = ParamItem{
 		Key:          "proxy.accessLog.remoteMaxTime",
 		Version:      "2.2.0",
-		DefaultValue: "168",
+		DefaultValue: "0",
 		Doc:          "Max time for log file in minIO, in hours",
 	}
 	p.AccessLog.RemoteMaxTime.Init(base.mgr)
+
+	p.AccessLog.Formatter = ParamGroup{
+		KeyPrefix: "proxy.accessLog.formatters.",
+		Version:   "2.3.4",
+	}
+	p.AccessLog.Formatter.Init(base.mgr)
 
 	p.ShardLeaderCacheInterval = ParamItem{
 		Key:          "proxy.shardLeaderCacheInterval",
@@ -1217,6 +1247,7 @@ type queryCoordConfig struct {
 	UpdateNextTargetInterval       ParamItem `refreshable:"false"`
 	CheckNodeInReplicaInterval     ParamItem `refreshable:"false"`
 	CheckResourceGroupInterval     ParamItem `refreshable:"false"`
+	LeaderViewUpdateInterval       ParamItem `refreshable:"false"`
 	EnableRGAutoRecover            ParamItem `refreshable:"true"`
 	CheckHealthInterval            ParamItem `refreshable:"false"`
 	CheckHealthRPCTimeout          ParamItem `refreshable:"true"`
@@ -1224,6 +1255,7 @@ type queryCoordConfig struct {
 	CollectionRecoverTimesLimit    ParamItem `refreshable:"true"`
 	ObserverTaskParallel           ParamItem `refreshable:"false"`
 	CheckAutoBalanceConfigInterval ParamItem `refreshable:"false"`
+	CheckNodeSessionInterval       ParamItem `refreshable:"false"`
 }
 
 func (p *queryCoordConfig) init(base *BaseTable) {
@@ -1488,6 +1520,15 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 	}
 	p.CheckResourceGroupInterval.Init(base.mgr)
 
+	p.LeaderViewUpdateInterval = ParamItem{
+		Key:          "queryCoord.leaderViewUpdateInterval",
+		Doc:          "the interval duration(in seconds) for LeaderObserver to fetch LeaderView from querynodes",
+		Version:      "2.3.4",
+		DefaultValue: "1",
+		PanicIfEmpty: true,
+	}
+	p.LeaderViewUpdateInterval.Init(base.mgr)
+
 	p.EnableRGAutoRecover = ParamItem{
 		Key:          "queryCoord.enableRGAutoRecover",
 		Version:      "2.2.3",
@@ -1509,7 +1550,7 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 	p.CheckHealthRPCTimeout = ParamItem{
 		Key:          "queryCoord.checkHealthRPCTimeout",
 		Version:      "2.2.7",
-		DefaultValue: "100",
+		DefaultValue: "2000",
 		PanicIfEmpty: true,
 		Doc:          "100ms, the timeout of check health rpc to query node",
 		Export:       true,
@@ -1555,6 +1596,16 @@ func (p *queryCoordConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.CheckAutoBalanceConfigInterval.Init(base.mgr)
+
+	p.CheckNodeSessionInterval = ParamItem{
+		Key:          "queryCoord.checkNodeSessionInterval",
+		Version:      "2.3.4",
+		DefaultValue: "60",
+		PanicIfEmpty: true,
+		Doc:          "the interval(in seconds) of check querynode cluster session",
+		Export:       true,
+	}
+	p.CheckNodeSessionInterval.Init(base.mgr)
 }
 
 // /////////////////////////////////////////////////////////////////////////////
@@ -1570,11 +1621,12 @@ type queryNodeConfig struct {
 	StatsPublishInterval ParamItem `refreshable:"true"`
 
 	// segcore
-	KnowhereThreadPoolSize ParamItem `refreshable:"false"`
-	ChunkRows              ParamItem `refreshable:"false"`
-	EnableTempSegmentIndex ParamItem `refreshable:"false"`
-	InterimIndexNlist      ParamItem `refreshable:"false"`
-	InterimIndexNProbe     ParamItem `refreshable:"false"`
+	KnowhereThreadPoolSize    ParamItem `refreshable:"false"`
+	ChunkRows                 ParamItem `refreshable:"false"`
+	EnableTempSegmentIndex    ParamItem `refreshable:"false"`
+	InterimIndexNlist         ParamItem `refreshable:"false"`
+	InterimIndexNProbe        ParamItem `refreshable:"false"`
+	InterimIndexMemExpandRate ParamItem `refreshable:"false"`
 
 	// memory limit
 	LoadMemoryUsageFactor               ParamItem `refreshable:"true"`
@@ -1712,6 +1764,15 @@ func (p *queryNodeConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.InterimIndexNlist.Init(base.mgr)
+
+	p.InterimIndexMemExpandRate = ParamItem{
+		Key:          "queryNode.segcore.interimIndex.memExpansionRate",
+		Version:      "2.0.0",
+		DefaultValue: "1.15",
+		Doc:          "extra memory needed by building interim index",
+		Export:       true,
+	}
+	p.InterimIndexMemExpandRate.Init(base.mgr)
 
 	p.InterimIndexNProbe = ParamItem{
 		Key:     "queryNode.segcore.interimIndex.nprobe",
@@ -2493,7 +2554,6 @@ type dataNodeConfig struct {
 	FlushDeleteBufferBytes ParamItem `refreshable:"true"`
 	BinLogMaxSize          ParamItem `refreshable:"true"`
 	SyncPeriod             ParamItem `refreshable:"true"`
-	DeltaPolicy            ParamItem `refreshable:"false"`
 
 	// watchEvent
 	WatchEventTicklerInterval ParamItem `refreshable:"false"`
@@ -2622,15 +2682,6 @@ func (p *dataNodeConfig) init(base *BaseTable) {
 		Export:       true,
 	}
 	p.SyncPeriod.Init(base.mgr)
-
-	p.DeltaPolicy = ParamItem{
-		Key:          "dataNode.segment.deltaPolicy",
-		Version:      "2.3.4",
-		DefaultValue: "bloom_filter_pkoracle",
-		Doc:          "the delta policy current datanode using",
-		Export:       true,
-	}
-	p.DeltaPolicy.Init(base.mgr)
 
 	p.WatchEventTicklerInterval = ParamItem{
 		Key:          "datanode.segment.watchEventTicklerInterval",
@@ -2779,6 +2830,10 @@ func (p *integrationTestConfig) init(base *BaseTable) {
 
 func (params *ComponentParam) Save(key string, value string) error {
 	return params.baseTable.Save(key, value)
+}
+
+func (params *ComponentParam) SaveGroup(group map[string]string) error {
+	return params.baseTable.SaveGroup(group)
 }
 
 func (params *ComponentParam) Remove(key string) error {

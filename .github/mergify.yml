@@ -283,6 +283,20 @@ pull_request_rules:
         add:
           - ci-passed
 
+  - name: Assign the 'lgtm' and 'approved' labels following the successful testing of the 'Update Knowhere Commit'
+    conditions:
+      - or:
+          - base=master
+          - base=sql_beta
+          - base~=^2(\.\d+){1,2}$
+      - 'title~=Update Knowhere Commit'
+      - label=ci-passed
+    actions:
+      label:
+        add:
+          - lgtm
+          - approved
+
   - name: Remove ci-passed label when status for code checker or ut is not success-master
     conditions:
       - label!=manual-pass
@@ -374,7 +388,7 @@ pull_request_rules:
         - base=master
         - base~=^2\.3(\.\d+){0,1}$
       - or:
-        - '-title~=^(feat:|enhance:|fix:|test:|doc:)'
+        - '-title~=^(feat:|enhance:|fix:|test:|doc:|auto:|\[automated\])'
         - body=^$
     actions:
       label:
@@ -394,6 +408,7 @@ pull_request_rules:
             - `enhance:` for improvements to existing functionality.
             - `test`: for add tests to existing functionality.
             - `doc`: for modifying documentation.
+            - `auto`: for the pull request from bot.
 
           2. **Description Requirement:** The PR must include a non-empty description, detailing the changes and their impact.
 
@@ -417,7 +432,7 @@ pull_request_rules:
       - or:
         - base=master
         - base~=^2\.3(\.\d+){0,1}$
-      - 'title~=^(feat:|enhance:|fix:|test:|doc:)'
+      - 'title~=^(feat:|enhance:|fix:|test:|doc:|auto:|\[automated\])'
       - '-body=^$'
       - 'label=do-not-merge/invalid-pr-format'
     actions:
