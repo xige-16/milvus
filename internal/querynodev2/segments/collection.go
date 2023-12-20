@@ -121,8 +121,8 @@ type Collection struct {
 	partitions    *typeutil.ConcurrentSet[int64]
 	loadType      querypb.LoadType
 	metricType    atomic.String // deprecated
-	metricTypes   *typeutil.ConcurrentMap[int64, string]
 	schema        atomic.Pointer[schemapb.CollectionSchema]
+	metricTypes   *typeutil.ConcurrentMap[int64, string]
 
 	refCount *atomic.Uint32
 }

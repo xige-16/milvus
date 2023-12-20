@@ -30,6 +30,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
+	"github.com/milvus-io/milvus/internal/proxy/connection"
 	"github.com/milvus-io/milvus/pkg/util/merr"
 	"github.com/milvus-io/milvus/pkg/util/requestutil"
 )
@@ -40,22 +41,22 @@ type AccessInfo interface {
 
 type GrpcAccessInfo struct {
 	ctx    context.Context
-	info   *grpc.UnaryServerInfo
 	status *commonpb.Status
 	req    interface{}
 	resp   interface{}
 	err    error
 
-	start time.Time
-	end   time.Time
+	grpcInfo *grpc.UnaryServerInfo
+	start    time.Time
+	end      time.Time
 }
 
-func NewGrpcAccessInfo(ctx context.Context, info *grpc.UnaryServerInfo, req interface{}) *GrpcAccessInfo {
+func NewGrpcAccessInfo(ctx context.Context, grpcInfo *grpc.UnaryServerInfo, req interface{}) *GrpcAccessInfo {
 	accessInfo := &GrpcAccessInfo{
-		ctx:   ctx,
-		info:  info,
-		req:   req,
-		start: time.Now(),
+		ctx:      ctx,
+		grpcInfo: grpcInfo,
+		req:      req,
+		start:    time.Now(),
 	}
 
 	return accessInfo
@@ -87,11 +88,8 @@ func (i *GrpcAccessInfo) SetResult(resp interface{}, err error) {
 
 func (i *GrpcAccessInfo) Get(keys ...string) []string {
 	result := []string{}
-	metricMap := map[string]string{}
 	for _, key := range keys {
-		if value, ok := metricMap[key]; ok {
-			result = append(result, value)
-		} else if getFunc, ok := metricFuncMap[key]; ok {
+		if getFunc, ok := metricFuncMap[key]; ok {
 			result = append(result, getFunc(i))
 		}
 	}
@@ -107,6 +105,7 @@ func (i *GrpcAccessInfo) Write() bool {
 	if !ok {
 		return false
 	}
+
 	_, err := _globalW.Write([]byte(formatter.Format(i)))
 	return err == nil
 }
@@ -137,7 +136,7 @@ func getTimeEnd(i *GrpcAccessInfo) string {
 }
 
 func getMethodName(i *GrpcAccessInfo) string {
-	_, methodName := path.Split(i.info.FullMethod)
+	_, methodName := path.Split(i.grpcInfo.FullMethod)
 	return methodName
 }
 
@@ -255,8 +254,21 @@ func getPartitionName(i *GrpcAccessInfo) string {
 
 func getExpr(i *GrpcAccessInfo) string {
 	expr, ok := requestutil.GetExprFromRequest(i.req)
-	if !ok {
+	if ok {
+		return expr.(string)
+	}
+
+	dsl, ok := requestutil.GetDSLFromRequest(i.req)
+	if ok {
+		return dsl.(string)
+	}
+	return unknownString
+}
+
+func getSdkVersion(i *GrpcAccessInfo) string {
+	clientInfo := connection.GetManager().Get(i.ctx)
+	if clientInfo == nil {
 		return unknownString
 	}
-	return expr.(string)
+	return clientInfo.SdkType + "-" + clientInfo.SdkVersion
 }

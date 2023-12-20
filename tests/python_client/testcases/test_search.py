@@ -249,11 +249,12 @@ class TestCollectionSearchInvalid(TestcaseBase):
         log.info("test_search_param_invalid_dim: searching with invalid dim")
         wrong_dim = 129
         vectors = [[random.random() for _ in range(wrong_dim)] for _ in range(default_nq)]
+        # The error message needs to be improved.
         collection_w.search(vectors[:default_nq], default_search_field,
                             default_search_params, default_limit, default_search_exp,
                             check_task=CheckTasks.err_res,
-                            check_items={"err_code": 65538,
-                                         "err_msg": 'failed to search'})
+                            check_items={"err_code": 65535,
+                                         "err_msg": 'vector dimension mismatch'})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_param_invalid_field_type(self, get_invalid_fields_type):
@@ -315,6 +316,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                                          "err_msg": "collection not loaded"})
 
     @pytest.mark.tags(CaseLabel.L2)
+    @pytest.mark.skip("issue #29020")
     @pytest.mark.parametrize("index, params",
                              zip(ct.all_index_types[:7],
                                  ct.default_index_params[:7]))
@@ -339,14 +341,16 @@ class TestCollectionSearchInvalid(TestcaseBase):
             if index == invalid_search_param["index_type"]:
                 search_params = {"metric_type": "L2",
                                  "params": invalid_search_param["search_params"]}
+                log.info("search_params: {}".format(search_params))
                 collection_w.search(vectors[:default_nq], default_search_field,
                                     search_params, default_limit,
                                     default_search_exp,
                                     check_task=CheckTasks.err_res,
                                     check_items={"err_code": 65535,
-                                                 "err_msg": "failed to search"})
+                                                 "err_msg": "failed to search: invalid param in json:"
+                                                            " invalid json key invalid_key"})
 
-    @pytest.mark.skip("not fixed yet")
+    @pytest.mark.skip("not support now")
     @pytest.mark.tags(CaseLabel.L1)
     @pytest.mark.parametrize("search_k", [-10, -1, 0, 10, 125])
     def test_search_param_invalid_annoy_index(self, search_k):
@@ -833,7 +837,7 @@ class TestCollectionSearchInvalid(TestcaseBase):
                             search_params[0], default_limit,
                             default_search_exp,
                             check_task=CheckTasks.err_res,
-                            check_items={"err_code": 65538, "err_msg": "failed to search"})
+                            check_items={"err_code": 65535, "err_msg": "type must be number, but is string"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_index_partition_not_existed(self):
@@ -2660,7 +2664,7 @@ class TestCollectionSearch(TestcaseBase):
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("partition_names",
                              [["(.*)"], ["search(.*)"]])
-    def test_search_index_partitions_fuzzy(self, nb, nq, dim, partition_names, auto_id, _async, enable_dynamic_field):
+    def test_search_index_partitions_fuzzy(self, nb, nq, dim, partition_names, auto_id, enable_dynamic_field):
         """
         target: test search from partitions
         method: search from partitions with fuzzy
@@ -2677,8 +2681,7 @@ class TestCollectionSearch(TestcaseBase):
         vectors = [[random.random() for _ in range(dim)] for _ in range(nq)]
         # 2. create index
         nlist = 128
-        default_index = {"index_type": "IVF_FLAT", "params": {
-            "nlist": nlist}, "metric_type": "COSINE"}
+        default_index = {"index_type": "IVF_FLAT", "params": {"nlist": nlist}, "metric_type": "COSINE"}
         collection_w.create_index("float_vector", default_index)
         collection_w.load()
         # 3. search through partitions
@@ -2693,12 +2696,10 @@ class TestCollectionSearch(TestcaseBase):
                 limit_check = par[1].num_entities
         collection_w.search(vectors[:nq], default_search_field,
                             search_params, limit, default_search_exp,
-                            partition_names, _async=_async,
-                            check_task=CheckTasks.check_search_results,
-                            check_items={"nq": nq,
-                                         "ids": insert_ids,
-                                         "limit": limit_check,
-                                         "_async": _async})
+                            partition_names,
+                            check_task=CheckTasks.err_res,
+                            check_items={ct.err_code: 65535,
+                                         ct.err_msg: "partition name %s not found" % partition_names})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_index_partition_empty(self, nq, dim, auto_id, _async):
@@ -6138,13 +6139,13 @@ class TestSearchDiskann(TestcaseBase):
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("limit", [1])
-    @pytest.mark.parametrize("search_list", [-1, 0, 201])
+    @pytest.mark.parametrize("search_list", [-1, 0])
     def test_search_invalid_params_with_diskann_A(self, dim, auto_id, search_list, limit):
         """
         target: test delete after creating index
         method: 1.create collection , insert data, primary_field is int field
                 2.create diskann index 
-                3.search with invalid params, where  topk <=20, search list [topk, 200]
+                3.search with invalid params, where  topk <=20, search list [topk, 2147483647]
         expected: search report an error
         """
         # 1. initialize with data
@@ -6164,13 +6165,11 @@ class TestSearchDiskann(TestcaseBase):
                             output_fields=output_fields,
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65535,
-                                         "err_msg": "search_list_size should be in range: [topk, "
-                                                    "max(200, topk * 10)], topk = 1, search_list_"
-                                                    "size = {}".format(search_list)})
+                                         "err_msg": "param search_list_size out of range [ 1,2147483647 ]"})
 
     @pytest.mark.tags(CaseLabel.L2)
     @pytest.mark.parametrize("limit", [20])
-    @pytest.mark.parametrize("search_list", [19, 201])
+    @pytest.mark.parametrize("search_list", [19])
     def test_search_invalid_params_with_diskann_B(self, dim, auto_id, search_list, limit):
         """
         target: test delete after creating index
@@ -6196,35 +6195,6 @@ class TestSearchDiskann(TestcaseBase):
                             check_task=CheckTasks.err_res,
                             check_items={"err_code": 65538,
                                          "err_msg": "UnknownError"})
-
-    @pytest.mark.tags(CaseLabel.L2)
-    @pytest.mark.parametrize("limit", [6553])
-    @pytest.mark.parametrize("search_list", [6550, 65536])
-    def test_search_invalid_params_with_diskann_C(self, dim, auto_id, search_list, limit):
-        """
-        target: test delete after creating index
-        method: 1.create collection , insert data, primary_field is int field
-                2.create diskann index 
-                3.search with invalid params , [k, min( 10 * topk, 65535)] when k > 20
-        expected: search report an error
-        """
-        # 1. initialize with data
-        collection_w, _, _, insert_ids = \
-            self.init_collection_general(prefix, True, auto_id=auto_id, dim=dim, is_index=False)[0:4]
-        # 2. create index
-        default_index = {"index_type": "DISKANN", "metric_type": "L2", "params": {}}
-        collection_w.create_index(ct.default_float_vec_field_name, default_index)
-        collection_w.load()
-        default_search_params = {"metric_type": "L2", "params": {"search_list": search_list}}
-        vectors = [[random.random() for _ in range(dim)] for _ in range(default_nq)]
-        output_fields = [default_int64_field_name, default_float_field_name,  default_string_field_name]
-        collection_w.search(vectors[:default_nq], default_search_field,
-                            default_search_params, limit,
-                            default_search_exp,
-                            output_fields=output_fields,
-                            check_task=CheckTasks.err_res,
-                            check_items={"err_code": 65538,
-                                         "err_msg": "failed to search"})
 
     @pytest.mark.tags(CaseLabel.L2)
     def test_search_with_diskann_with_string_pk(self, dim, enable_dynamic_field):

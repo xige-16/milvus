@@ -87,6 +87,8 @@ const (
 
 	// minFloat32 minimum float.
 	minFloat32 = -1 * float32(math.MaxFloat32)
+
+	RankTypeKey = "strategy"
 )
 
 type task interface {

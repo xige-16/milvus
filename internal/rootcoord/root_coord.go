@@ -484,7 +484,7 @@ func (c *Core) initInternal() error {
 		c.ctx,
 		c.etcdCli,
 		c.chanTimeTick.initSessions,
-		c.proxyClientManager.GetProxyClients,
+		c.proxyClientManager.AddProxyClients,
 	)
 	c.proxyManager.AddSessionFunc(c.chanTimeTick.addSession, c.proxyClientManager.AddProxyClient)
 	c.proxyManager.DelSessionFunc(c.chanTimeTick.delSession, c.proxyClientManager.DelProxyClient)
@@ -612,6 +612,43 @@ func (c *Core) initRbac() error {
 		if err != nil && !common.IsIgnorableError(err) {
 			return errors.Wrap(err, "failed to grant collection privilege")
 		}
+	}
+	if Params.RoleCfg.Enabled.GetAsBool() {
+		return c.initBuiltinRoles()
+	}
+	return nil
+}
+
+func (c *Core) initBuiltinRoles() error {
+	rolePrivilegesMap := Params.RoleCfg.Roles.GetAsRoleDetails()
+	for role, privilegesJSON := range rolePrivilegesMap {
+		err := c.meta.CreateRole(util.DefaultTenant, &milvuspb.RoleEntity{Name: role})
+		if err != nil && !common.IsIgnorableError(err) {
+			log.Error("create a builtin role fail", zap.Any("error", err), zap.String("roleName", role))
+			return errors.Wrapf(err, "failed to create a builtin role: %s", role)
+		}
+		for _, privilege := range privilegesJSON[util.RoleConfigPrivileges] {
+			privilegeName := privilege[util.RoleConfigPrivilege]
+			if !util.IsAnyWord(privilege[util.RoleConfigPrivilege]) {
+				privilegeName = util.PrivilegeNameForMetastore(privilege[util.RoleConfigPrivilege])
+			}
+			err := c.meta.OperatePrivilege(util.DefaultTenant, &milvuspb.GrantEntity{
+				Role:       &milvuspb.RoleEntity{Name: role},
+				Object:     &milvuspb.ObjectEntity{Name: privilege[util.RoleConfigObjectType]},
+				ObjectName: privilege[util.RoleConfigObjectName],
+				DbName:     privilege[util.RoleConfigDBName],
+				Grantor: &milvuspb.GrantorEntity{
+					User:      &milvuspb.UserEntity{Name: util.UserRoot},
+					Privilege: &milvuspb.PrivilegeEntity{Name: privilegeName},
+				},
+			}, milvuspb.OperatePrivilegeType_Grant)
+			if err != nil && !common.IsIgnorableError(err) {
+				log.Error("grant privilege to builtin role fail", zap.Any("error", err), zap.String("roleName", role), zap.Any("privilege", privilege))
+				return errors.Wrapf(err, "failed to grant privilege: <%s, %s, %s> of db: %s to role: %s", privilege[util.RoleConfigObjectType], privilege[util.RoleConfigObjectName], privilege[util.RoleConfigPrivilege], privilege[util.RoleConfigDBName], role)
+			}
+		}
+		util.BuiltinRoles = append(util.BuiltinRoles, role)
+		log.Info("init a builtin role successfully", zap.String("roleName", role))
 	}
 	return nil
 }
@@ -2268,6 +2305,10 @@ func (c *Core) DropRole(ctx context.Context, in *milvuspb.DropRoleRequest) (*com
 	if err := merr.CheckHealthy(c.GetStateCode()); err != nil {
 		return merr.Status(err), nil
 	}
+	for util.IsBuiltinRole(in.GetRoleName()) {
+		err := merr.WrapErrPrivilegeNotPermitted("the role[%s] is a builtin role, which can't be dropped", in.GetRoleName())
+		return merr.Status(err), nil
+	}
 	if _, err := c.meta.SelectRole(util.DefaultTenant, &milvuspb.RoleEntity{Name: in.RoleName}, false); err != nil {
 		errMsg := "not found the role, maybe the role isn't existed or internal system error"
 		ctxLog.Warn(errMsg, zap.Error(err))
@@ -2674,7 +2715,8 @@ func (c *Core) SelectGrant(ctx context.Context, in *milvuspb.SelectGrantRequest)
 	grantEntities, err := c.meta.SelectGrant(util.DefaultTenant, in.Entity)
 	if errors.Is(err, merr.ErrIoKeyNotFound) {
 		return &milvuspb.SelectGrantResponse{
-			Status: merr.Success(),
+			Status:   merr.Success(),
+			Entities: grantEntities,
 		}, nil
 	}
 	if err != nil {
@@ -2779,12 +2821,12 @@ func (c *Core) CheckHealth(ctx context.Context, in *milvuspb.CheckHealthRequest)
 
 	mu := &sync.Mutex{}
 	group, ctx := errgroup.WithContext(ctx)
-	errReasons := make([]string, 0, len(c.proxyClientManager.proxyClient))
+	errReasons := make([]string, 0, c.proxyClientManager.GetProxyCount())
 
-	c.proxyClientManager.lock.RLock()
-	for nodeID, proxyClient := range c.proxyClientManager.proxyClient {
-		nodeID := nodeID
-		proxyClient := proxyClient
+	proxyClients := c.proxyClientManager.GetProxyClients()
+	proxyClients.Range(func(key int64, value types.ProxyClient) bool {
+		nodeID := key
+		proxyClient := value
 		group.Go(func() error {
 			sta, err := proxyClient.GetComponentStates(ctx, &milvuspb.GetComponentStatesRequest{})
 			if err != nil {
@@ -2799,8 +2841,8 @@ func (c *Core) CheckHealth(ctx context.Context, in *milvuspb.CheckHealthRequest)
 			}
 			return nil
 		})
-	}
-	c.proxyClientManager.lock.RUnlock()
+		return true
+	})
 
 	err := group.Wait()
 	if err != nil || len(errReasons) != 0 {

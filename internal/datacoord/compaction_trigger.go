@@ -46,7 +46,7 @@ type trigger interface {
 	// triggerCompaction triggers a compaction if any compaction condition satisfy.
 	triggerCompaction() error
 	// triggerSingleCompaction triggers a compaction bundled with collection-partition-channel-segment
-	triggerSingleCompaction(collectionID, partitionID, segmentID int64, channel string) error
+	triggerSingleCompaction(collectionID, partitionID, segmentID int64, channel string, blockToSendSignal bool) error
 	// forceTriggerCompaction force to start a compaction
 	forceTriggerCompaction(collectionID int64) (UniqueID, error)
 }
@@ -232,7 +232,7 @@ func (t *compactionTrigger) triggerCompaction() error {
 }
 
 // triggerSingleCompaction triger a compaction bundled with collection-partition-channel-segment
-func (t *compactionTrigger) triggerSingleCompaction(collectionID, partitionID, segmentID int64, channel string) error {
+func (t *compactionTrigger) triggerSingleCompaction(collectionID, partitionID, segmentID int64, channel string, blockToSendSignal bool) error {
 	// If AutoCompaction disabled, flush request will not trigger compaction
 	if !Params.DataCoordCfg.EnableAutoCompaction.GetAsBool() {
 		return nil
@@ -251,7 +251,16 @@ func (t *compactionTrigger) triggerSingleCompaction(collectionID, partitionID, s
 		segmentID:    segmentID,
 		channel:      channel,
 	}
-	t.signals <- signal
+	if blockToSendSignal {
+		t.signals <- signal
+		return nil
+	}
+	select {
+	case t.signals <- signal:
+	default:
+		log.Info("no space to send compaction signal", zap.Int64("collectionID", collectionID), zap.Int64("segmentID", segmentID), zap.String("channel", channel))
+	}
+
 	return nil
 }
 
@@ -357,7 +366,8 @@ func (t *compactionTrigger) handleGlobalSignal(signal *compactionSignal) error {
 			isSegmentHealthy(segment) &&
 			isFlush(segment) &&
 			!segment.isCompacting && // not compacting now
-			!segment.GetIsImporting() // not importing now
+			!segment.GetIsImporting() && // not importing now
+			segment.GetLevel() != datapb.SegmentLevel_L0 // ignore level zero segments
 	}) // m is list of chanPartSegments, which is channel-partition organized segments
 
 	if len(m) == 0 {
@@ -795,7 +805,8 @@ func (t *compactionTrigger) getCandidateSegments(channel string, partitionID Uni
 			s.GetInsertChannel() != channel ||
 			s.GetPartitionID() != partitionID ||
 			s.isCompacting ||
-			s.GetIsImporting() {
+			s.GetIsImporting() ||
+			s.GetLevel() == datapb.SegmentLevel_L0 {
 			continue
 		}
 		res = append(res, s)
@@ -904,17 +915,19 @@ func (t *compactionTrigger) ShouldDoSingleCompaction(segment *SegmentInfo, isDis
 		return true
 	}
 
-	// index version of segment lower than current version and IndexFileKeys should have value, trigger compaction
-	for _, index := range segment.segmentIndexes {
-		if index.CurrentIndexVersion < t.indexEngineVersionManager.GetCurrentIndexEngineVersion() &&
-			len(index.IndexFileKeys) > 0 {
-			log.Info("index version is too old, trigger compaction",
-				zap.Int64("segmentID", segment.ID),
-				zap.Int64("indexID", index.IndexID),
-				zap.Strings("indexFileKeys", index.IndexFileKeys),
-				zap.Int32("currentIndexVersion", index.CurrentIndexVersion),
-				zap.Int32("currentEngineVersion", t.indexEngineVersionManager.GetCurrentIndexEngineVersion()))
-			return true
+	if Params.DataCoordCfg.AutoUpgradeSegmentIndex.GetAsBool() {
+		// index version of segment lower than current version and IndexFileKeys should have value, trigger compaction
+		for _, index := range segment.segmentIndexes {
+			if index.CurrentIndexVersion < t.indexEngineVersionManager.GetCurrentIndexEngineVersion() &&
+				len(index.IndexFileKeys) > 0 {
+				log.Info("index version is too old, trigger compaction",
+					zap.Int64("segmentID", segment.ID),
+					zap.Int64("indexID", index.IndexID),
+					zap.Strings("indexFileKeys", index.IndexFileKeys),
+					zap.Int32("currentIndexVersion", index.CurrentIndexVersion),
+					zap.Int32("currentEngineVersion", t.indexEngineVersionManager.GetCurrentIndexEngineVersion()))
+				return true
+			}
 		}
 	}
 

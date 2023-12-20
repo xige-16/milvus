@@ -706,6 +706,7 @@ func (suite *ServiceSuite) TestLoadIndex_Success() {
 		Schema:        schema,
 		NeedTransfer:  false,
 		LoadScope:     querypb.LoadScope_Full,
+		IndexInfoList: segments.GenTestIndexInfoList(suite.collectionID, schema),
 		IndexInfoList: indexInfoList,
 	}
 

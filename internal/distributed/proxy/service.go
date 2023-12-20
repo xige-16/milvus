@@ -59,6 +59,7 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/proxypb"
 	"github.com/milvus-io/milvus/internal/proxy"
 	"github.com/milvus-io/milvus/internal/proxy/accesslog"
+	"github.com/milvus-io/milvus/internal/proxy/connection"
 	"github.com/milvus-io/milvus/internal/storage"
 	"github.com/milvus-io/milvus/internal/types"
 	"github.com/milvus-io/milvus/internal/util/componentutil"
@@ -172,7 +173,11 @@ func (s *Server) registerHTTPServer() {
 
 func (s *Server) startHTTPServer(errChan chan error) {
 	defer s.wg.Done()
-	ginHandler := gin.Default()
+	ginHandler := gin.New()
+	ginLogger := gin.LoggerWithConfig(gin.LoggerConfig{
+		SkipPaths: proxy.Params.ProxyCfg.GinLogSkipPaths.GetAsStrings(),
+	})
+	ginHandler.Use(ginLogger, gin.Recovery())
 	ginHandler.Use(func(c *gin.Context) {
 		_, err := strconv.ParseBool(c.Request.Header.Get(httpserver.HTTPHeaderAllowInt64))
 		if err != nil {
@@ -251,7 +256,7 @@ func (s *Server) startExternalGrpc(grpcPort int, errChan chan error) {
 			proxy.RateLimitInterceptor(limiter),
 			accesslog.UnaryUpdateAccessInfoInterceptor,
 			proxy.TraceLogInterceptor,
-			proxy.KeepActiveInterceptor,
+			connection.KeepActiveInterceptor,
 		))
 	} else {
 		unaryServerOption = grpc.EmptyServerOption{}
@@ -816,6 +821,11 @@ func (s *Server) CreateIndex(ctx context.Context, request *milvuspb.CreateIndexR
 	return s.proxy.CreateIndex(ctx, request)
 }
 
+func (s *Server) AlterIndex(ctx context.Context, request *milvuspb.AlterIndexRequest) (*commonpb.Status, error) {
+	// Todo
+	return nil, nil
+}
+
 // DropIndex notifies Proxy to drop index
 func (s *Server) DropIndex(ctx context.Context, request *milvuspb.DropIndexRequest) (*commonpb.Status, error) {
 	return s.proxy.DropIndex(ctx, request)
@@ -858,6 +868,10 @@ func (s *Server) Upsert(ctx context.Context, request *milvuspb.UpsertRequest) (*
 
 func (s *Server) Search(ctx context.Context, request *milvuspb.SearchRequest) (*milvuspb.SearchResults, error) {
 	return s.proxy.Search(ctx, request)
+}
+
+func (s *Server) SearchV2(ctx context.Context, request *milvuspb.SearchRequestV2) (*milvuspb.SearchResults, error) {
+	return s.proxy.SearchV2(ctx, request)
 }
 
 func (s *Server) Flush(ctx context.Context, request *milvuspb.FlushRequest) (*milvuspb.FlushResponse, error) {

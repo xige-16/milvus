@@ -87,7 +87,7 @@ GetTopK(CSearchPlan plan) {
 }
 
 CStatus
-GetANNSFieldID(CSearchPlan plan, int64_t* field_id) {
+GetFieldID(CSearchPlan plan, int64_t* field_id) {
     try {
         auto p = static_cast<const milvus::query::Plan*>(plan);
         *field_id = milvus::query::GetFieldID(p);

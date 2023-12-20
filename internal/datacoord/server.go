@@ -114,16 +114,17 @@ type Server struct {
 	meta             *meta
 	segmentManager   Manager
 	allocator        allocator
-	cluster          *Cluster
-	sessionManager   *SessionManager
+	cluster          Cluster
+	sessionManager   SessionManager
 	channelManager   *ChannelManager
 	rootCoordClient  types.RootCoordClient
 	garbageCollector *garbageCollector
 	gcOpt            GcOption
 	handler          Handler
 
-	compactionTrigger trigger
-	compactionHandler compactionPlanContext
+	compactionTrigger     trigger
+	compactionHandler     compactionPlanContext
+	compactionViewManager *CompactionViewManager
 
 	metricsCacheManager *metricsinfo.MetricsCacheManager
 
@@ -185,7 +186,7 @@ func WithServerHelper(helper ServerHelper) Option {
 }
 
 // WithCluster returns an `Option` setting Cluster with provided parameter
-func WithCluster(cluster *Cluster) Option {
+func WithCluster(cluster Cluster) Option {
 	return func(svr *Server) {
 		svr.cluster = cluster
 	}
@@ -401,8 +402,47 @@ func (s *Server) startDataCoord() {
 	if Params.DataCoordCfg.EnableCompaction.GetAsBool() {
 		s.compactionHandler.start()
 		s.compactionTrigger.start()
+		s.compactionViewManager.Start()
 	}
 	s.startServerLoop()
+
+	// http.Register(&http.Handler{
+	// 	Path: "/datacoord/garbage_collection/pause",
+	// 	HandlerFunc: func(w http.ResponseWriter, req *http.Request) {
+	// 		pauseSeconds := req.URL.Query().Get("pause_seconds")
+	// 		seconds, err := strconv.ParseInt(pauseSeconds, 10, 64)
+	// 		if err != nil {
+	// 			w.WriteHeader(400)
+	// 			w.Write([]byte(fmt.Sprintf(`{"msg": "invalid pause seconds(%v)"}`, pauseSeconds)))
+	// 			return
+	// 		}
+
+	// 		err = s.garbageCollector.Pause(req.Context(), time.Duration(seconds)*time.Second)
+	// 		if err != nil {
+	// 			w.WriteHeader(500)
+	// 			w.Write([]byte(fmt.Sprintf(`{"msg": "failed to pause garbage collection, %s"}`, err.Error())))
+	// 			return
+	// 		}
+	// 		w.WriteHeader(200)
+	// 		w.Write([]byte(`{"msg": "OK"}`))
+	// 		return
+	// 	},
+	// })
+	// http.Register(&http.Handler{
+	// 	Path: "/datacoord/garbage_collection/resume",
+	// 	HandlerFunc: func(w http.ResponseWriter, req *http.Request) {
+	// 		err := s.garbageCollector.Resume(req.Context())
+	// 		if err != nil {
+	// 			w.WriteHeader(500)
+	// 			w.Write([]byte(fmt.Sprintf(`{"msg": "failed to pause garbage collection, %s"}`, err.Error())))
+	// 			return
+	// 		}
+	// 		w.WriteHeader(200)
+	// 		w.Write([]byte(`{"msg": "OK"}`))
+	// 		return
+	// 	},
+	// })
+
 	s.afterStart()
 	s.stateCode.Store(commonpb.StateCode_Healthy)
 	sessionutil.SaveServerInfo(typeutil.DataCoordRole, s.session.GetServerID())
@@ -423,8 +463,8 @@ func (s *Server) initCluster() error {
 	if err != nil {
 		return err
 	}
-	s.sessionManager = NewSessionManager(withSessionCreator(s.dataNodeCreator))
-	s.cluster = NewCluster(s.sessionManager, s.channelManager)
+	s.sessionManager = NewSessionManagerImpl(withSessionCreator(s.dataNodeCreator))
+	s.cluster = NewClusterImpl(s.sessionManager, s.channelManager)
 	return nil
 }
 
@@ -455,10 +495,13 @@ func (s *Server) SetIndexNodeCreator(f func(context.Context, string, int64) (typ
 
 func (s *Server) createCompactionHandler() {
 	s.compactionHandler = newCompactionPlanHandler(s.sessionManager, s.channelManager, s.meta, s.allocator)
+	triggerv2 := NewCompactionTriggerManager(s.meta, s.allocator, s.compactionHandler)
+	s.compactionViewManager = NewCompactionViewManager(s.meta, triggerv2, s.allocator)
 }
 
 func (s *Server) stopCompactionHandler() {
 	s.compactionHandler.stop()
+	s.compactionViewManager.Close()
 }
 
 func (s *Server) createCompactionTrigger() {
@@ -593,7 +636,7 @@ func (s *Server) initMeta(chunkManager storage.ChunkManager) error {
 
 func (s *Server) initIndexBuilder(manager storage.ChunkManager) {
 	if s.indexBuilder == nil {
-		s.indexBuilder = newIndexBuilder(s.ctx, s.meta, s.indexNodeManager, manager, s.indexEngineVersionManager)
+		s.indexBuilder = newIndexBuilder(s.ctx, s.meta, s.indexNodeManager, manager, s.indexEngineVersionManager, s.handler)
 	}
 }
 
@@ -699,7 +742,7 @@ func (s *Server) handleTimetickMessage(ctx context.Context, ttMsg *msgstream.Dat
 		log.RatedWarn(60.0, "time tick lag behind for more than 1 minutes", zap.String("channel", ch), zap.Time("timetick", physical))
 	}
 	// ignore report from a different node
-	if !s.cluster.channelManager.Match(ttMsg.GetBase().GetSourceID(), ch) {
+	if !s.channelManager.Match(ttMsg.GetBase().GetSourceID(), ch) {
 		log.Warn("node is not matched with channel", zap.String("channel", ch), zap.Int64("nodeID", ttMsg.GetBase().GetSourceID()))
 		return nil
 	}

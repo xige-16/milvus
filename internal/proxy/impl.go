@@ -41,6 +41,7 @@ import (
 	"github.com/milvus-io/milvus/internal/proto/internalpb"
 	"github.com/milvus-io/milvus/internal/proto/proxypb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
+	"github.com/milvus-io/milvus/internal/proxy/connection"
 	"github.com/milvus-io/milvus/internal/util/importutil"
 	"github.com/milvus-io/milvus/pkg/common"
 	"github.com/milvus-io/milvus/pkg/log"
@@ -1813,6 +1814,11 @@ func (node *Proxy) CreateIndex(ctx context.Context, request *milvuspb.CreateInde
 	return cit.result, nil
 }
 
+func (node *Proxy) AlterIndex(ctx context.Context, request *milvuspb.AlterIndexRequest) (*commonpb.Status, error) {
+	// Todo
+	return nil, nil
+}
+
 // DescribeIndex get the meta information of index, such as index state, index id and etc.
 func (node *Proxy) DescribeIndex(ctx context.Context, request *milvuspb.DescribeIndexRequest) (*milvuspb.DescribeIndexResponse, error) {
 	if err := merr.CheckHealthy(node.GetStateCode()); err != nil {
@@ -2597,6 +2603,139 @@ func (node *Proxy) Search(ctx context.Context, request *milvuspb.SearchRequest) 
 		log.Warn(
 			rpcFailedToWaitToFinish(method),
 			zap.Int64("nq", qt.SearchRequest.GetNq()),
+			zap.Error(err),
+		)
+
+		metrics.ProxyFunctionCall.WithLabelValues(
+			strconv.FormatInt(paramtable.GetNodeID(), 10),
+			method,
+			metrics.FailLabel,
+		).Inc()
+
+		return &milvuspb.SearchResults{
+			Status: merr.Status(err),
+		}, nil
+	}
+
+	span := tr.CtxRecord(ctx, "wait search result")
+	metrics.ProxyWaitForSearchResultLatency.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+	).Observe(float64(span.Milliseconds()))
+
+	tr.CtxRecord(ctx, "wait search result")
+	log.Debug(rpcDone(method))
+
+	metrics.ProxyFunctionCall.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		method,
+		metrics.SuccessLabel,
+	).Inc()
+
+	metrics.ProxySearchVectors.WithLabelValues(strconv.FormatInt(paramtable.GetNodeID(), 10)).Add(float64(qt.result.GetResults().GetNumQueries()))
+
+	searchDur := tr.ElapseSpan().Milliseconds()
+	metrics.ProxySQLatency.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+	).Observe(float64(searchDur))
+
+	metrics.ProxyCollectionSQLatency.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+		request.CollectionName,
+	).Observe(float64(searchDur))
+
+	if qt.result != nil {
+		sentSize := proto.Size(qt.result)
+		metrics.ProxyReadReqSendBytes.WithLabelValues(strconv.FormatInt(paramtable.GetNodeID(), 10)).Add(float64(sentSize))
+		rateCol.Add(metricsinfo.ReadResultThroughput, float64(sentSize))
+	}
+	return qt.result, nil
+}
+
+func (node *Proxy) SearchV2(ctx context.Context, request *milvuspb.SearchRequestV2) (*milvuspb.SearchResults, error) {
+	receiveSize := proto.Size(request)
+	metrics.ProxyReceiveBytes.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+		request.GetCollectionName(),
+	).Add(float64(receiveSize))
+
+	if err := merr.CheckHealthy(node.GetStateCode()); err != nil {
+		return &milvuspb.SearchResults{
+			Status: merr.Status(err),
+		}, nil
+	}
+
+	method := "SearchV2"
+	tr := timerecord.NewTimeRecorder(method)
+	metrics.ProxyFunctionCall.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		method,
+		metrics.TotalLabel,
+	).Inc()
+
+	ctx, sp := otel.Tracer(typeutil.ProxyRole).Start(ctx, "Proxy-SearchV2")
+	defer sp.End()
+
+	qt := &searchTaskV2{
+		ctx:                 ctx,
+		Condition:           NewTaskCondition(ctx),
+		request:             request,
+		tr:                  timerecord.NewTimeRecorder("searchV2"),
+		qc:                  node.queryCoord,
+		node:                node,
+		lb:                  node.lbPolicy,
+		multipleRecallTasks: make(map[string]*milvuspb.SearchResults),
+	}
+
+	guaranteeTs := request.GuaranteeTimestamp
+
+	log := log.Ctx(ctx).With(
+		zap.String("role", typeutil.ProxyRole),
+		zap.String("db", request.DbName),
+		zap.String("collection", request.CollectionName),
+		zap.Any("partitions", request.PartitionNames),
+		zap.Any("OutputFields", request.OutputFields),
+		zap.Uint64("guarantee_timestamp", guaranteeTs),
+	)
+
+	defer func() {
+		span := tr.ElapseSpan()
+		if span >= SlowReadSpan {
+			log.Info(rpcSlow(method), zap.Duration("duration", span))
+		}
+	}()
+
+	log.Debug(rpcReceived(method))
+
+	if err := node.sched.dqQueue.Enqueue(qt); err != nil {
+		log.Warn(
+			rpcFailedToEnqueue(method),
+			zap.Error(err),
+		)
+
+		metrics.ProxyFunctionCall.WithLabelValues(
+			strconv.FormatInt(paramtable.GetNodeID(), 10),
+			method,
+			metrics.AbandonLabel,
+		).Inc()
+
+		return &milvuspb.SearchResults{
+			Status: merr.Status(err),
+		}, nil
+	}
+	tr.CtxRecord(ctx, "searchV2 request enqueue")
+
+	log.Debug(
+		rpcEnqueued(method),
+		zap.Uint64("timestamp", qt.request.Base.Timestamp),
+	)
+
+	if err := qt.WaitToFinish(); err != nil {
+		log.Warn(
+			rpcFailedToWaitToFinish(method),
 			zap.Error(err),
 		)
 
@@ -4222,7 +4361,7 @@ func (node *Proxy) DropRole(ctx context.Context, req *milvuspb.DropRoleRequest) 
 		return merr.Status(err), nil
 	}
 	if IsDefaultRole(req.RoleName) {
-		err := merr.WrapErrPrivilegeNotPermitted("the role[%s] is a default role, which can't be droped", req.GetRoleName())
+		err := merr.WrapErrPrivilegeNotPermitted("the role[%s] is a default role, which can't be dropped", req.GetRoleName())
 		return merr.Status(err), nil
 	}
 	result, err := node.rootCoord.DropRole(ctx, req)
@@ -4978,7 +5117,7 @@ func (node *Proxy) Connect(ctx context.Context, request *milvuspb.ConnectRequest
 	}
 
 	db := GetCurDBNameFromContextOrDefault(ctx)
-	logsToBePrinted := append(getLoggerOfClientInfo(request.GetClientInfo()), zap.String("db", db))
+	logsToBePrinted := append(connection.ZapClientInfo(request.GetClientInfo()), zap.String("db", db))
 	log := log.Ctx(ctx).With(logsToBePrinted...)
 
 	log.Info("connect received")
@@ -5023,7 +5162,7 @@ func (node *Proxy) Connect(ctx context.Context, request *milvuspb.ConnectRequest
 		Reserved:   make(map[string]string),
 	}
 
-	GetConnectionManager().register(ctx, int64(ts), request.GetClientInfo())
+	connection.GetManager().Register(ctx, int64(ts), request.GetClientInfo())
 
 	return &milvuspb.ConnectResponse{
 		Status:     merr.Success(),
@@ -5135,8 +5274,7 @@ func (node *Proxy) ListClientInfos(ctx context.Context, req *proxypb.ListClientI
 		return &proxypb.ListClientInfosResponse{Status: merr.Status(err)}, nil
 	}
 
-	clients := GetConnectionManager().list()
-
+	clients := connection.GetManager().List()
 	return &proxypb.ListClientInfosResponse{
 		Status:      merr.Success(),
 		ClientInfos: clients,

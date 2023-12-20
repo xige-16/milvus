@@ -96,22 +96,12 @@ func NewSearchRequest(collection *Collection, req *querypb.SearchRequest, placeh
 	}
 
 	var fieldID C.int64_t
-	status := C.GetANNSFieldID(plan.cSearchPlan, &fieldID)
+	status := C.GetFieldID(plan.cSearchPlan, &fieldID)
 	if err = HandleCStatus(&status, "get fieldID from plan failed"); err != nil {
 		plan.delete()
 		return nil, err
 	}
 
-	// Check if the metric type specified in search params matches the metric type in the index info.
-	if metricType != "" && metricType != collection.GetMetricType(int64(fieldID)) {
-		return nil, merr.WrapErrParameterInvalid(collection.GetMetricType(int64(fieldID)), metricType,
-			fmt.Sprintf("collection:%d, metric type not match", collection.id))
-	}
-
-	// Define the metric type when it has not been explicitly assigned by the user.
-	if metricType == "" {
-		metricType = collection.GetMetricType(int64(fieldID))
-	}
 	plan.setMetricType(metricType)
 
 	if len(placeholderGrp) == 0 {
