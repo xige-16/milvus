@@ -206,7 +206,6 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 
 	log.Info("received watch channel request",
 		zap.Int64("version", req.GetVersion()),
-		zap.String("metricType", req.GetLoadMeta().GetMetricType()),
 	)
 
 	// check node healthy
@@ -217,12 +216,6 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 
 	// check target matches
 	if err := merr.CheckTargetID(req.GetBase()); err != nil {
-		return merr.Status(err), nil
-	}
-
-	// check metric type
-	if req.GetLoadMeta().GetMetricType() == "" {
-		err := fmt.Errorf("empty metric type, collection = %d", req.GetCollectionID())
 		return merr.Status(err), nil
 	}
 
@@ -255,7 +248,15 @@ func (node *QueryNode) WatchDmChannels(ctx context.Context, req *querypb.WatchDm
 	node.manager.Collection.PutOrRef(req.GetCollectionID(), req.GetSchema(),
 		node.composeIndexMeta(req.GetIndexInfoList(), req.Schema), req.GetLoadMeta())
 	collection := node.manager.Collection.Get(req.GetCollectionID())
-	collection.SetMetricType(req.GetLoadMeta().GetMetricType())
+	metricTypes, err := segments.GetMetricType(req.GetIndexInfoList(), req.GetSchema())
+	if err != nil {
+		log.Warn("failed to get metric types for vector fields", zap.Error(err))
+		return merr.Status(err), nil
+	}
+	for fieldID, metricType := range metricTypes {
+		collection.SetMetricType(fieldID, metricType)
+	}
+
 	delegator, err := delegator.NewShardDelegator(
 		ctx,
 		req.GetCollectionID(),
@@ -481,6 +482,23 @@ func (node *QueryNode) LoadSegments(ctx context.Context, req *querypb.LoadSegmen
 	}
 	if req.GetLoadScope() == querypb.LoadScope_Index {
 		return node.loadIndex(ctx, req), nil
+	}
+
+	collection := node.manager.Collection.Get(req.GetCollectionID())
+	if collection == nil {
+		node.manager.Collection.PutOrRef(req.GetCollectionID(), req.GetSchema(),
+			node.composeIndexMeta(req.GetIndexInfoList(), req.GetSchema()), req.GetLoadMeta())
+		defer node.manager.Collection.Unref(req.GetCollectionID(), 1)
+
+		collection = node.manager.Collection.Get(req.GetCollectionID())
+		metricTypes, err := segments.GetMetricType(req.GetIndexInfoList(), req.GetSchema())
+		if err != nil {
+			log.Warn("failed to get metric types for vector fields", zap.Error(err))
+			return merr.Status(err), nil
+		}
+		for fieldID, metricType := range metricTypes {
+			collection.SetMetricType(fieldID, metricType)
+		}
 	}
 
 	// Actual load segment
@@ -780,20 +798,6 @@ func (node *QueryNode) Search(ctx context.Context, req *querypb.SearchRequest) (
 	if collection == nil {
 		resp.Status = merr.Status(merr.WrapErrCollectionNotFound(req.GetReq().GetCollectionID()))
 		return resp, nil
-	}
-
-	// Check if the metric type specified in search params matches the metric type in the index info.
-	if !req.GetFromShardLeader() && req.GetReq().GetMetricType() != "" {
-		if req.GetReq().GetMetricType() != collection.GetMetricType() {
-			resp.Status = merr.Status(merr.WrapErrParameterInvalid(collection.GetMetricType(), req.GetReq().GetMetricType(),
-				fmt.Sprintf("collection:%d, metric type not match", collection.ID())))
-			return resp, nil
-		}
-	}
-
-	// Define the metric type when it has not been explicitly assigned by the user.
-	if !req.GetFromShardLeader() && req.GetReq().GetMetricType() == "" {
-		req.Req.MetricType = collection.GetMetricType()
 	}
 
 	toReduceResults := make([]*internalpb.SearchResults, len(req.GetDmlChannels()))

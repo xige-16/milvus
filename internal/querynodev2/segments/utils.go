@@ -19,10 +19,13 @@ import (
 	"io"
 	"strconv"
 
+	"github.com/cockroachdb/errors"
 	"github.com/golang/protobuf/proto"
+	"github.com/samber/lo"
 	"go.uber.org/zap"
 
 	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
+	"github.com/milvus-io/milvus/internal/proto/indexpb"
 	"github.com/milvus-io/milvus/internal/proto/internalpb"
 	"github.com/milvus-io/milvus/internal/storage"
 	"github.com/milvus-io/milvus/pkg/common"
@@ -306,6 +309,29 @@ func mergeRequestCost(requestCosts []*internalpb.CostAggregation) *internalpb.Co
 	}
 
 	return result
+}
+
+func GetMetricType(indexInfos []*indexpb.IndexInfo, schema *schemapb.CollectionSchema) (map[int64]string, error) {
+	vecFields := typeutil.GetVectorFieldSchemas(schema)
+	if len(vecFields) == 0 {
+		return nil, errors.New("vector fields not found in schema")
+	}
+
+	res := make(map[int64]string)
+	for _, vecField := range vecFields {
+		indexInfo, ok := lo.Find(indexInfos, func(info *indexpb.IndexInfo) bool {
+			return info.GetFieldID() == vecField.GetFieldID()
+		})
+		if !ok || indexInfo == nil {
+			return nil, errors.Errorf("cannot find index info for %s vector field", vecField.GetName())
+		}
+		metricType, err := funcutil.GetAttrByKeyFromRepeatedKV(common.MetricTypeKey, indexInfo.GetIndexParams())
+		if err != nil {
+			return nil, err
+		}
+		res[vecField.FieldID] = metricType
+	}
+	return res, nil
 }
 
 func getIndexEngineVersion() (minimal, current int32) {

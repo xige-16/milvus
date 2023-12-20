@@ -57,7 +57,7 @@ func (suite *PlanSuite) TestPlanCreateByExpr() {
 	expr, err := proto.Marshal(planNode)
 	suite.NoError(err)
 
-	_, err = createSearchPlanByExpr(suite.collection, expr, "")
+	_, err = createSearchPlanByExpr(suite.collection, expr)
 	suite.Error(err)
 }
 
@@ -66,7 +66,7 @@ func (suite *PlanSuite) TestPlanFail() {
 		id: -1,
 	}
 
-	_, err := createSearchPlanByExpr(collection, nil, "")
+	_, err := createSearchPlanByExpr(collection, nil)
 	suite.Error(err)
 }
 

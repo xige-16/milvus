@@ -2655,8 +2655,136 @@ func (node *Proxy) Search(ctx context.Context, request *milvuspb.SearchRequest) 
 }
 
 func (node *Proxy) SearchV2(ctx context.Context, request *milvuspb.SearchRequestV2) (*milvuspb.SearchResults, error) {
-	// Todo
-	return nil, nil
+	receiveSize := proto.Size(request)
+	metrics.ProxyReceiveBytes.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+		request.GetCollectionName(),
+	).Add(float64(receiveSize))
+
+	if err := merr.CheckHealthy(node.GetStateCode()); err != nil {
+		return &milvuspb.SearchResults{
+			Status: merr.Status(err),
+		}, nil
+	}
+
+	method := "SearchV2"
+	tr := timerecord.NewTimeRecorder(method)
+	metrics.ProxyFunctionCall.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		method,
+		metrics.TotalLabel,
+	).Inc()
+
+	ctx, sp := otel.Tracer(typeutil.ProxyRole).Start(ctx, "Proxy-SearchV2")
+	defer sp.End()
+
+	qt := &searchTaskV2{
+		ctx:                 ctx,
+		Condition:           NewTaskCondition(ctx),
+		request:             request,
+		tr:                  timerecord.NewTimeRecorder("searchV2"),
+		qc:                  node.queryCoord,
+		node:                node,
+		lb:                  node.lbPolicy,
+		multipleRecallTasks: make(map[string]*milvuspb.SearchResults),
+	}
+
+	guaranteeTs := request.GuaranteeTimestamp
+
+	log := log.Ctx(ctx).With(
+		zap.String("role", typeutil.ProxyRole),
+		zap.String("db", request.DbName),
+		zap.String("collection", request.CollectionName),
+		zap.Any("partitions", request.PartitionNames),
+		zap.Any("OutputFields", request.OutputFields),
+		zap.Uint64("guarantee_timestamp", guaranteeTs),
+	)
+
+	defer func() {
+		span := tr.ElapseSpan()
+		if span >= SlowReadSpan {
+			log.Info(rpcSlow(method), zap.Duration("duration", span))
+		}
+	}()
+
+	log.Debug(rpcReceived(method))
+
+	if err := node.sched.dqQueue.Enqueue(qt); err != nil {
+		log.Warn(
+			rpcFailedToEnqueue(method),
+			zap.Error(err),
+		)
+
+		metrics.ProxyFunctionCall.WithLabelValues(
+			strconv.FormatInt(paramtable.GetNodeID(), 10),
+			method,
+			metrics.AbandonLabel,
+		).Inc()
+
+		return &milvuspb.SearchResults{
+			Status: merr.Status(err),
+		}, nil
+	}
+	tr.CtxRecord(ctx, "searchV2 request enqueue")
+
+	log.Debug(
+		rpcEnqueued(method),
+		zap.Uint64("timestamp", qt.request.Base.Timestamp),
+	)
+
+	if err := qt.WaitToFinish(); err != nil {
+		log.Warn(
+			rpcFailedToWaitToFinish(method),
+			zap.Error(err),
+		)
+
+		metrics.ProxyFunctionCall.WithLabelValues(
+			strconv.FormatInt(paramtable.GetNodeID(), 10),
+			method,
+			metrics.FailLabel,
+		).Inc()
+
+		return &milvuspb.SearchResults{
+			Status: merr.Status(err),
+		}, nil
+	}
+
+	span := tr.CtxRecord(ctx, "wait search result")
+	metrics.ProxyWaitForSearchResultLatency.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+	).Observe(float64(span.Milliseconds()))
+
+	tr.CtxRecord(ctx, "wait search result")
+	log.Debug(rpcDone(method))
+
+	metrics.ProxyFunctionCall.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		method,
+		metrics.SuccessLabel,
+	).Inc()
+
+	metrics.ProxySearchVectors.WithLabelValues(strconv.FormatInt(paramtable.GetNodeID(), 10)).Add(float64(qt.result.GetResults().GetNumQueries()))
+
+	searchDur := tr.ElapseSpan().Milliseconds()
+	metrics.ProxySQLatency.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+	).Observe(float64(searchDur))
+
+	metrics.ProxyCollectionSQLatency.WithLabelValues(
+		strconv.FormatInt(paramtable.GetNodeID(), 10),
+		metrics.SearchLabel,
+		request.CollectionName,
+	).Observe(float64(searchDur))
+
+	if qt.result != nil {
+		sentSize := proto.Size(qt.result)
+		metrics.ProxyReadReqSendBytes.WithLabelValues(strconv.FormatInt(paramtable.GetNodeID(), 10)).Add(float64(sentSize))
+		rateCol.Add(metricsinfo.ReadResultThroughput, float64(sentSize))
+	}
+	return qt.result, nil
 }
 
 func (node *Proxy) getVectorPlaceholderGroupForSearchByPks(ctx context.Context, request *milvuspb.SearchRequest) ([]byte, error) {

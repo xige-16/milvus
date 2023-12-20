@@ -41,7 +41,7 @@ type SearchPlan struct {
 	cSearchPlan C.CSearchPlan
 }
 
-func createSearchPlanByExpr(col *Collection, expr []byte, metricType string) (*SearchPlan, error) {
+func createSearchPlanByExpr(col *Collection, expr []byte) (*SearchPlan, error) {
 	if col.collectionPtr == nil {
 		return nil, errors.New("nil collection ptr, collectionID = " + fmt.Sprintln(col.id))
 	}
@@ -53,13 +53,7 @@ func createSearchPlanByExpr(col *Collection, expr []byte, metricType string) (*S
 		return nil, err1
 	}
 
-	newPlan := &SearchPlan{cSearchPlan: cPlan}
-	if len(metricType) != 0 {
-		newPlan.setMetricType(metricType)
-	} else {
-		newPlan.setMetricType(col.GetMetricType())
-	}
-	return newPlan, nil
+	return &SearchPlan{cSearchPlan: cPlan}, nil
 }
 
 func (plan *SearchPlan) getTopK() int64 {
@@ -96,10 +90,35 @@ func NewSearchRequest(collection *Collection, req *querypb.SearchRequest, placeh
 	var plan *SearchPlan
 	metricType := req.GetReq().GetMetricType()
 	expr := req.Req.SerializedExprPlan
-	plan, err = createSearchPlanByExpr(collection, expr, metricType)
+	plan, err = createSearchPlanByExpr(collection, expr)
 	if err != nil {
 		return nil, err
 	}
+
+	var fieldID C.int64_t
+	status := C.GetFieldID(plan.cSearchPlan, &fieldID)
+	if err = HandleCStatus(&status, "get fieldID from plan failed"); err != nil {
+		plan.delete()
+		return nil, err
+	}
+
+	//if metricType, ok := collection.GetMetricType(int64(fieldID)); ok {
+	//
+	//} else {
+	//	log.Warn()
+	//}
+
+	// Check if the metric type specified in search params matches the metric type in the index info.
+	//if metricType != "" && metricType != collection.GetMetricType(int64(fieldID)) {
+	//	return nil, merr.WrapErrParameterInvalid(collection.GetMetricType(int64(fieldID)), metricType,
+	//		fmt.Sprintf("collection:%d, metric type not match", collection.id))
+	//}
+
+	// Define the metric type when it has not been explicitly assigned by the user.
+	//if metricType == "" {
+	//	metricType = collection.GetMetricType(int64(fieldID))
+	//}
+	plan.setMetricType(metricType)
 
 	if len(placeholderGrp) == 0 {
 		plan.delete()
@@ -109,16 +128,9 @@ func NewSearchRequest(collection *Collection, req *querypb.SearchRequest, placeh
 	blobPtr := unsafe.Pointer(&placeholderGrp[0])
 	blobSize := C.int64_t(len(placeholderGrp))
 	var cPlaceholderGroup C.CPlaceholderGroup
-	status := C.ParsePlaceholderGroup(plan.cSearchPlan, blobPtr, blobSize, &cPlaceholderGroup)
+	status = C.ParsePlaceholderGroup(plan.cSearchPlan, blobPtr, blobSize, &cPlaceholderGroup)
 
 	if err := HandleCStatus(&status, "parser searchRequest failed"); err != nil {
-		plan.delete()
-		return nil, err
-	}
-
-	var fieldID C.int64_t
-	status = C.GetFieldID(plan.cSearchPlan, &fieldID)
-	if err = HandleCStatus(&status, "get fieldID from plan failed"); err != nil {
 		plan.delete()
 		return nil, err
 	}

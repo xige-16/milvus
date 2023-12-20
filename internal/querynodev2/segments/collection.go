@@ -79,7 +79,6 @@ func (m *collectionManager) PutOrRef(collectionID int64, schema *schemapb.Collec
 	}
 
 	collection := NewCollection(collectionID, schema, meta, loadMeta.GetLoadType())
-	collection.metricType.Store(loadMeta.GetMetricType())
 	collection.AddPartition(loadMeta.GetPartitionIDs()...)
 	collection.Ref(1)
 	m.collections[collectionID] = collection
@@ -121,8 +120,9 @@ type Collection struct {
 	id            int64
 	partitions    *typeutil.ConcurrentSet[int64]
 	loadType      querypb.LoadType
-	metricType    atomic.String
+	metricType    atomic.String // deprecated
 	schema        atomic.Pointer[schemapb.CollectionSchema]
+	metricTypes   *typeutil.ConcurrentMap[int64, string]
 
 	refCount *atomic.Uint32
 }
@@ -165,12 +165,17 @@ func (c *Collection) GetLoadType() querypb.LoadType {
 	return c.loadType
 }
 
-func (c *Collection) SetMetricType(metricType string) {
-	c.metricType.Store(metricType)
+func (c *Collection) SetMetricType(fieldID int64, metricType string) {
+	c.metricTypes.Insert(fieldID, metricType)
 }
 
-func (c *Collection) GetMetricType() string {
-	return c.metricType.Load()
+func (c *Collection) GetMetricType(fieldID int64) (string, bool) {
+	val, ok := c.metricTypes.Get(fieldID)
+	if !ok {
+		return "", false
+	}
+
+	return val, true
 }
 
 func (c *Collection) Ref(count uint32) uint32 {
@@ -220,6 +225,7 @@ func NewCollection(collectionID int64, schema *schemapb.CollectionSchema, indexM
 		partitions:    typeutil.NewConcurrentSet[int64](),
 		loadType:      loadType,
 		refCount:      atomic.NewUint32(0),
+		metricTypes:   typeutil.NewConcurrentMap[int64, string](),
 	}
 	coll.schema.Store(schema)
 
