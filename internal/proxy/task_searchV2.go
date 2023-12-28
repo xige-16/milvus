@@ -30,7 +30,7 @@ type searchV2Task struct {
 	ctx context.Context
 
 	result  *milvuspb.SearchResults
-	request *milvuspb.SearchRequestV2
+	request *milvuspb.HybridSearchRequest
 
 	tr      *timerecord.TimeRecorder
 	schema  *schemapb.CollectionSchema
@@ -53,6 +53,9 @@ func (t *searchV2Task) PreExecute(ctx context.Context) error {
 	ctx, sp := otel.Tracer(typeutil.ProxyRole).Start(ctx, "Proxy-SearchV2-PreExecute")
 	defer sp.End()
 
+	if len(t.request.Requests) > 1024 {
+		return errors.New("maximum of ann search requests is 1024")
+	}
 	collectionName := t.request.CollectionName
 	t.collectionName = collectionName
 	collID, err := globalMetaCache.GetCollectionID(ctx, t.request.GetDbName(), collectionName)

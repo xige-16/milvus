@@ -6,8 +6,11 @@ import (
 	"github.com/cockroachdb/errors"
 	"github.com/milvus-io/milvus-proto/go-api/v2/commonpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/milvuspb"
+	"github.com/milvus-io/milvus/pkg/log"
 	"github.com/milvus-io/milvus/pkg/util/funcutil"
 	"github.com/milvus-io/milvus/pkg/util/merr"
+	"go.uber.org/zap"
+	"reflect"
 	"strconv"
 )
 
@@ -45,20 +48,24 @@ func (bs *baseScorer) name() string {
 
 type rrfScorer struct {
 	baseScorer
-	k int
+	k float32
 }
 
 func (rs *rrfScorer) reScore(input *milvuspb.SearchResults) {
-
+	for i := range input.Results.Scores {
+		input.Results.Scores[i] = 1 / (rs.k + float32(i+1))
+	}
 }
 
 type weightedScorer struct {
 	baseScorer
-	weights []float64
+	weight float32
 }
 
 func (ws *weightedScorer) reScore(input *milvuspb.SearchResults) {
-
+	for i, score := range input.Results.Scores {
+		input.Results.Scores[i] = ws.weight * score
+	}
 }
 
 func NewReScorer(reqs []*milvuspb.SearchRequest, rankParams []*commonpb.KeyValuePair) ([]reScorer, error) {
@@ -95,38 +102,53 @@ func NewReScorer(reqs []*milvuspb.SearchRequest, rankParams []*commonpb.KeyValue
 	if err != nil {
 		return nil, err
 	}
+	log.Info("rank params", zap.Any("params", params), zap.String("param str", paramStr))
 
 	res := make([]reScorer, len(reqs))
 	switch rankTypeMap[rankTypeStr] {
 	case rrfRankType:
+		k, ok := params[RRFParamsKey].(float64)
+		if !ok {
+			return nil, errors.New(RRFParamsKey + " not found in rank_params")
+		}
+		log.Info("rrf params", zap.Float64("k", k))
 		for i := range reqs {
-			k, ok := params[RRFParamsKey].(int)
-			if !ok {
-				return nil, errors.New(RRFParamsKey + " not found in rank_params")
-			}
 			res[i] = &rrfScorer{
 				baseScorer: baseScorer{
 					scorerName:   "rrf",
 					roundDecimal: roundDecimal,
 				},
-				k: k,
+				k: float32(k),
 			}
 		}
 	case weightedRankType:
+		if _, ok := params[WeightsParamsKey]; !ok {
+			return nil, errors.New(WeightsParamsKey + " not found in rank_params")
+		}
+		weights := make([]float32, 0)
+		switch reflect.TypeOf(params[WeightsParamsKey]).Kind() {
+		case reflect.Slice:
+			rs := reflect.ValueOf(params[WeightsParamsKey])
+
+			for i := 0; i < rs.Len(); i++ {
+				weights = append(weights, float32(rs.Index(i).Interface().(float64)))
+			}
+		default:
+			return nil, errors.New("The weights param should be an array")
+		}
+
+		log.Info("weights params", zap.Any("weights", weights))
+		//weights, ok := params[WeightsParamsKey].([]float32)
+		if len(reqs) != len(weights) {
+			return nil, merr.WrapErrParameterInvalid(fmt.Sprint(len(reqs)), fmt.Sprint(len(weights)), "weights mismatch with ann search requests")
+		}
 		for i := range reqs {
-			weights, ok := params[WeightsParamsKey].([]float64)
-			if len(reqs) != len(weights) {
-				return nil, merr.WrapErrParameterInvalid(fmt.Sprint(len(reqs)), fmt.Sprint(len(weights)), "weights mismatch with ann search requests")
-			}
-			if !ok {
-				return nil, errors.New(WeightsParamsKey + " not found in rank_params")
-			}
 			res[i] = &weightedScorer{
 				baseScorer: baseScorer{
 					scorerName:   "weighted",
 					roundDecimal: roundDecimal,
 				},
-				weights: weights,
+				weight: weights[i],
 			}
 		}
 	default:
