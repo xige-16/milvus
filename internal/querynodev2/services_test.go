@@ -18,6 +18,7 @@ package querynodev2
 import (
 	"context"
 	"encoding/json"
+	"github.com/milvus-io/milvus/internal/proto/indexpb"
 	"io"
 	"math/rand"
 	"sync"
@@ -37,7 +38,6 @@ import (
 	"github.com/milvus-io/milvus-proto/go-api/v2/msgpb"
 	"github.com/milvus-io/milvus-proto/go-api/v2/schemapb"
 	"github.com/milvus-io/milvus/internal/proto/datapb"
-	"github.com/milvus-io/milvus/internal/proto/indexpb"
 	"github.com/milvus-io/milvus/internal/proto/internalpb"
 	"github.com/milvus-io/milvus/internal/proto/planpb"
 	"github.com/milvus-io/milvus/internal/proto/querypb"
@@ -257,6 +257,7 @@ func (suite *ServiceSuite) TestWatchDmChannelsInt64() {
 	ctx := context.Background()
 
 	// data
+	schema := segments.GenTestCollectionSchema(suite.collectionName, schemapb.DataType_Int64)
 	deltaLogs, err := segments.SaveDeltaLog(suite.collectionID,
 		suite.partitionIDs[0],
 		suite.flushedSegmentIDs[0],
@@ -292,16 +293,14 @@ func (suite *ServiceSuite) TestWatchDmChannelsInt64() {
 				Level:         datapb.SegmentLevel_L0,
 			},
 		},
-		Schema: segments.GenTestCollectionSchema(suite.collectionName, schemapb.DataType_Int64),
+		Schema: schema,
 		LoadMeta: &querypb.LoadMetaInfo{
 			LoadType:     querypb.LoadType_LoadCollection,
 			CollectionID: suite.collectionID,
 			PartitionIDs: suite.partitionIDs,
 			MetricType:   defaultMetricType,
 		},
-		IndexInfoList: []*indexpb.IndexInfo{
-			{},
-		},
+		IndexInfoList: segments.GenTestIndexInfoList(suite.collectionID, schema),
 	}
 
 	// mocks
@@ -326,6 +325,7 @@ func (suite *ServiceSuite) TestWatchDmChannelsVarchar() {
 	ctx := context.Background()
 
 	// data
+	schema := segments.GenTestCollectionSchema(suite.collectionName, schemapb.DataType_VarChar)
 	req := &querypb.WatchDmChannelsRequest{
 		Base: &commonpb.MsgBase{
 			MsgType:  commonpb.MsgType_WatchDmChannels,
@@ -344,16 +344,14 @@ func (suite *ServiceSuite) TestWatchDmChannelsVarchar() {
 				DroppedSegmentIds: suite.droppedSegmentIDs,
 			},
 		},
-		Schema: segments.GenTestCollectionSchema(suite.collectionName, schemapb.DataType_VarChar),
+		Schema: schema,
 		LoadMeta: &querypb.LoadMetaInfo{
 			LoadType:     querypb.LoadType_LoadCollection,
 			CollectionID: suite.collectionID,
 			PartitionIDs: suite.partitionIDs,
 			MetricType:   defaultMetricType,
 		},
-		IndexInfoList: []*indexpb.IndexInfo{
-			{},
-		},
+		IndexInfoList: segments.GenTestIndexInfoList(suite.collectionID, schema),
 	}
 
 	// mocks
@@ -378,6 +376,7 @@ func (suite *ServiceSuite) TestWatchDmChannels_Failed() {
 	ctx := context.Background()
 
 	// data
+	schema := segments.GenTestCollectionSchema(suite.collectionName, schemapb.DataType_Int64)
 	req := &querypb.WatchDmChannelsRequest{
 		Base: &commonpb.MsgBase{
 			MsgType:  commonpb.MsgType_WatchDmChannels,
@@ -396,13 +395,11 @@ func (suite *ServiceSuite) TestWatchDmChannels_Failed() {
 				DroppedSegmentIds: suite.droppedSegmentIDs,
 			},
 		},
-		Schema: segments.GenTestCollectionSchema(suite.collectionName, schemapb.DataType_Int64),
+		Schema: schema,
 		LoadMeta: &querypb.LoadMetaInfo{
 			MetricType: defaultMetricType,
 		},
-		IndexInfoList: []*indexpb.IndexInfo{
-			{},
-		},
+		IndexInfoList: segments.GenTestIndexInfoList(suite.collectionID, schema),
 	}
 
 	// test channel is unsubscribing
@@ -534,18 +531,29 @@ func (suite *ServiceSuite) genSegmentLoadInfos(schema *schemapb.CollectionSchema
 		)
 		suite.Require().NoError(err)
 
-		vecFieldIDs := funcutil.GetVecFieldIDs(schema)
-		indexes, err := segments.GenAndSaveIndex(
-			suite.collectionID,
-			suite.partitionIDs[i%partNum],
-			suite.validSegmentIDs[i],
-			vecFieldIDs[0],
-			1000,
-			segments.IndexFaissIVFFlat,
-			metric.L2,
-			suite.node.chunkManager,
-		)
-		suite.Require().NoError(err)
+		vectorFieldSchemas := typeutil.GetVectorFieldSchemas(schema)
+		indexes := make([]*querypb.FieldIndexInfo, len(vectorFieldSchemas))
+		for offset, field := range vectorFieldSchemas {
+			var indexType string
+			switch field.DataType {
+			case schemapb.DataType_FloatVector:
+				indexType = segments.IndexFaissIVFFlat
+			case schemapb.DataType_BinaryVector:
+				indexType = segments.IndexFaissBinIVFFlat
+			}
+			 todo GenAndSaveIndex for bin type
+			indexes[offset], err = segments.GenAndSaveIndex(
+				suite.collectionID,
+				suite.partitionIDs[i%partNum],
+				suite.validSegmentIDs[i],
+				field.GetFieldID(),
+				1000,
+				indexType,
+				metric.L2,
+				suite.node.chunkManager,
+			)
+			suite.Require().NoError(err)
+		}
 
 		info := &querypb.SegmentLoadInfo{
 			SegmentID:     suite.validSegmentIDs[i],
@@ -555,7 +563,7 @@ func (suite *ServiceSuite) genSegmentLoadInfos(schema *schemapb.CollectionSchema
 			NumOfRows:     1000,
 			BinlogPaths:   binlogs,
 			Statslogs:     statslogs,
-			IndexInfos:    []*querypb.FieldIndexInfo{indexes},
+			IndexInfos:    indexes,
 			StartPosition: &msgpb.MsgPosition{Timestamp: 20000},
 			DeltaPosition: &msgpb.MsgPosition{Timestamp: 20000},
 		}
@@ -710,6 +718,7 @@ func (suite *ServiceSuite) TestLoadIndex_Success() {
 		Schema:        schema,
 		NeedTransfer:  false,
 		LoadScope:     querypb.LoadScope_Full,
+		IndexInfoList: segments.GenTestIndexInfoList(suite.collectionID, schema),
 		IndexInfoList: indexInfoList,
 	}
 
@@ -1253,12 +1262,6 @@ func (suite *ServiceSuite) TestSearch_Failed() {
 		MetricType:   "L2",
 	}
 	suite.node.manager.Collection.PutOrRef(suite.collectionID, schema, nil, LoadMeta)
-	req.GetReq().MetricType = "IP"
-	resp, err = suite.node.Search(ctx, req)
-	suite.NoError(err)
-	suite.ErrorIs(merr.Error(resp.GetStatus()), merr.ErrParameterInvalid)
-	suite.Contains(resp.GetStatus().GetReason(), merr.ErrParameterInvalid.Error())
-	req.GetReq().MetricType = "L2"
 
 	// Delegator not found
 	resp, err = suite.node.Search(ctx, req)
@@ -1267,6 +1270,17 @@ func (suite *ServiceSuite) TestSearch_Failed() {
 
 	suite.TestWatchDmChannelsInt64()
 	suite.TestLoadSegments_Int64()
+
+	// metric type not match
+	schemaHelper, _ := typeutil.CreateSchemaHelper(schema)
+	floatVecField, _ := schemaHelper.GetFieldFromName("floatVectorField")
+	suite.node.manager.Collection.Get(suite.collectionID).SetMetricType(floatVecField.FieldID, "L2")
+	req.GetReq().MetricType = "IP"
+	resp, err = suite.node.Search(ctx, req)
+	suite.NoError(err)
+	suite.ErrorIs(merr.Error(resp.GetStatus()), merr.ErrParameterInvalid)
+	suite.Contains(resp.GetStatus().GetReason(), merr.ErrParameterInvalid.Error())
+	req.GetReq().MetricType = "L2"
 
 	// target not match
 	req.Req.Base.TargetID = -1
