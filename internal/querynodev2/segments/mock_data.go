@@ -291,6 +291,39 @@ func GenTestCollectionSchema(collectionName string, pkType schemapb.DataType) *s
 	return &schema
 }
 
+func GenTestIndexInfoList(collectionID int64, schema *schemapb.CollectionSchema) []*indexpb.IndexInfo {
+	res := make([]*indexpb.IndexInfo, 0)
+	for _, field := range schema.GetFields() {
+		switch field.GetDataType() {
+		case schemapb.DataType_FloatVector:
+			{
+				res = append(res, &indexpb.IndexInfo{
+					CollectionID: collectionID,
+					FieldID:      field.GetFieldID(),
+					IndexParams:  []*commonpb.KeyValuePair{{Key: metricTypeKey, Value: metric.L2}},
+				})
+			}
+		case schemapb.DataType_BinaryVector:
+			{
+				res = append(res, &indexpb.IndexInfo{
+					CollectionID: collectionID,
+					FieldID:      field.GetFieldID(),
+					IndexParams:  []*commonpb.KeyValuePair{{Key: metricTypeKey, Value: metric.JACCARD}},
+				})
+			}
+		case schemapb.DataType_Float16Vector:
+			{
+				res = append(res, &indexpb.IndexInfo{
+					CollectionID: collectionID,
+					FieldID:      field.GetFieldID(),
+					IndexParams:  []*commonpb.KeyValuePair{{Key: metricTypeKey, Value: metric.L2}},
+				})
+			}
+		}
+	}
+	return res
+}
+
 func GenTestIndexMeta(collectionID int64, schema *schemapb.CollectionSchema) *segcorepb.CollectionIndexMeta {
 	sizePerRecord, err := typeutil.EstimateSizePerRecord(schema)
 	maxIndexRecordPerSegment := int64(0)
