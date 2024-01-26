@@ -983,6 +983,7 @@ func (node *QueryNode) Query(ctx context.Context, req *querypb.QueryRequest) (*i
 	if ret.GetCostAggregation() != nil {
 		ret.GetCostAggregation().ResponseTime = tr.ElapseSpan().Milliseconds()
 	}
+	PrintMeminfo()
 	return ret, nil
 }
 

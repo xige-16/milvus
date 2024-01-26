@@ -268,6 +268,10 @@ endif ()
 add_subdirectory( thirdparty )
 add_subdirectory( src )
 
+message( STATUS "Building Milvus using AddressSanitizer")
+add_compile_options(-fno-stack-protector -fno-omit-frame-pointer -fno-var-tracking -fsanitize=address)
+add_link_options(-fno-stack-protector -fno-omit-frame-pointer -fno-var-tracking -fsanitize=address)
+
 # Unittest lib
 if ( BUILD_UNIT_TEST STREQUAL "ON" )
     append_flags( CMAKE_CXX_FLAGS FLAGS "-DELPP_DISABLE_LOGS")

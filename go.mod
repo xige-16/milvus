@@ -61,9 +61,11 @@ require github.com/apache/arrow/go/v12 v12.0.1
 require github.com/milvus-io/milvus-storage/go v0.0.0-20231227072638-ebd0b8e56d70
 
 require (
+	github.com/containerd/cgroups v1.0.1
 	github.com/milvus-io/milvus/pkg v0.0.0-00010101000000-000000000000
 	github.com/pingcap/log v1.1.1-0.20221015072633-39906604fb81
 	github.com/quasilyte/go-ruleguard/dsl v0.3.22
+	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.0.841
 	golang.org/x/net v0.17.0
 )
 
@@ -191,7 +193,6 @@ require (
 	github.com/streamnative/pulsarctl v0.5.0 // indirect
 	github.com/stretchr/objx v0.5.0 // indirect
 	github.com/subosito/gotenv v1.2.0 // indirect
-	github.com/tencentcloud/tencentcloud-sdk-go/tencentcloud/common v1.0.841 // indirect
 	github.com/tiancaiamao/gp v0.0.0-20221230034425-4025bc8a4d4a // indirect
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
